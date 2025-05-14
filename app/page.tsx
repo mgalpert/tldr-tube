@@ -8,9 +8,7 @@ import { Spinner } from "@/components/ui/spinner";
 import MuxVideo from "@mux/mux-video-react";
 import { getJobStatus, submitVideo } from "./actions";
 
-export const pollJobStatus = async (
-  jobId: string
-): Promise<string | undefined> => {
+const pollJobStatus = async (jobId: string): Promise<string | undefined> => {
   console.log("Polling job", jobId);
 
   const poll = async (): Promise<string | undefined> => {
@@ -86,7 +84,7 @@ export default function Home() {
     <main className="flex flex-col items-center justify-center gap-4">
       {/* <WaveLinesBackground /> */}
       <PurpleGradientBackground />
-      <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full">
+      <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
         {!loading && !resultVideo && (
           <>
             <h1 className="font-bold text-5xl">
@@ -127,7 +125,7 @@ export default function Home() {
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-4 pb-[20rem] w-3/4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pb-[20rem] w-full md:w-3/4 px-4">
         {demoVideos.map((video) => (
           <div className="flex flex-col items-center gap-2" key={video.before}>
             <span>Original:</span>
