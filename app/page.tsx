@@ -119,6 +119,7 @@ export default function Home() {
               src={convertVideoToEmbed(videoUrl)}
             ></iframe>
             <Skeleton className="w-1/3 aspect-video border border-primary flex items-center justify-center">
+              This might take 2-3 minutes...
               <Spinner />
             </Skeleton>
           </div>
