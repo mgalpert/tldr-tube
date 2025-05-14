@@ -36,7 +36,7 @@ const pollJobStatus = async (jobId: string): Promise<string | undefined> => {
 };
 
 const fetchVideo = async (videoUrl: string): Promise<string | undefined> => {
-  console.log("fetching video");
+  console.log("fetching video...");
   const jobId = await submitVideo(videoUrl);
   if (!jobId) return;
   return await pollJobStatus(jobId);
