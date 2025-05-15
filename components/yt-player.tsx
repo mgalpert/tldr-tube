@@ -1,4 +1,3 @@
-// YouTubeConcatenatedPlayer.tsx
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -42,7 +41,6 @@ export default function YouTubeConcatenatedPlayer({
   const realToVirtual = (real: number) => {
     let idx = segments.findIndex((s) => real >= s.start && real < s.end);
     if (idx === -1) {
-      // If real time is before the first segment or after the last
       if (segments.length > 0 && real < segments[0].start) {
         idx = 0;
       } else {
@@ -58,7 +56,6 @@ export default function YouTubeConcatenatedPlayer({
         virtual >= cumulative[i] && virtual < cumulative[i] + segLengths[i]
     );
     if (idx === -1) {
-      // If virtual time is outside all segments, clamp to nearest
       if (segments.length > 0 && virtual < cumulative[0]) {
         idx = 0;
       } else {
@@ -75,9 +72,20 @@ export default function YouTubeConcatenatedPlayer({
   const [playing, setPlaying] = useState(false);
   const [virtualTime, setVirtualTime] = useState(0);
   const [originalDuration, setOriginalDuration] = useState<number | null>(null);
+  const [playbackRate, setPlaybackRate] = useState<1 | 2>(2); // NEW ▶ default 2x
+
   const reductionPercent = originalDuration
     ? 100 * (1 - totalDuration / originalDuration)
     : null;
+
+  /* ---------- helper: cycle playback rate ---------- */
+  const cycleRate = useCallback(() => {
+    const next: 1 | 2 | 4 = playbackRate === 2 ? 1 : 2;
+    setPlaybackRate(next);
+    if (playerRef.current?.setPlaybackRate) {
+      playerRef.current.setPlaybackRate(next);
+    }
+  }, [playbackRate]);
 
   /* ---------- player bootstrap ---------- */
   useEffect(() => {
@@ -88,46 +96,43 @@ export default function YouTubeConcatenatedPlayer({
       if (firstScriptTag && firstScriptTag.parentNode) {
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
       } else {
-        document.head.appendChild(tag); // Fallback if no script tags
+        document.head.appendChild(tag);
       }
     };
 
     window.onYouTubeIframeAPIReady = () => {
-      if (playerRef.current) {
-        // Avoid re-initializing if already exists
-        return;
-      }
+      if (playerRef.current) return; // already initialized
       playerRef.current = new window.YT.Player("yt-cc-player", {
-        height: String(height), // API expects string
-        width: String(width), // API expects string
+        height: String(height),
+        width: String(width),
         videoId,
         playerVars: {
           controls: 0,
           modestbranding: 1,
           rel: 0,
-          iv_load_policy: 3, // disable annotations
-          autoplay: 0, // ensure no autoplay on load
-          disablekb: 1, // disable keyboard controls for the iframe
+          iv_load_policy: 3,
+          autoplay: 0,
+          disablekb: 1,
         },
         events: {
           onReady: (event: any) => {
             setIsReady(true);
-            // Ensure player is muted initially if desired, or for autoplay policies
-            // playerRef.current.mute();
             const fullDuration = event.target.getDuration?.();
             if (typeof fullDuration === "number" && !isNaN(fullDuration)) {
               setOriginalDuration(fullDuration);
+            }
+            // ⏩ set initial playback rate
+            if (event.target.setPlaybackRate) {
+              // YouTube supports up to 2× officially; attempting 4× may silently fail.
+              event.target.setPlaybackRate(playbackRate);
             }
             if (segments.length > 0) {
               seekVirtual(0);
             }
           },
-          // It's good practice to also listen to onStateChange to manage play/pause state
-          // if the user somehow interacts with the player (e.g., via keyboard if not disabled)
           onStateChange: (event: any) => {
             if (event.data === window.YT.PlayerState.PLAYING) {
               if (!playing) {
-                // Sync state if changed externally
                 setPlaying(true);
                 if (!rafId.current) rafId.current = requestAnimationFrame(tick);
               }
@@ -136,7 +141,6 @@ export default function YouTubeConcatenatedPlayer({
               event.data === window.YT.PlayerState.ENDED
             ) {
               if (playing) {
-                // Sync state
                 setPlaying(false);
                 stopRaf();
               }
@@ -144,7 +148,6 @@ export default function YouTubeConcatenatedPlayer({
                 event.data === window.YT.PlayerState.ENDED &&
                 segments.length > 0
               ) {
-                // If the underlying video ends, and it's the last segment, treat as virtual end
                 const currentSegIdx = segments.findIndex(
                   (_, i) =>
                     virtualTime >= cumulative[i] &&
@@ -162,28 +165,14 @@ export default function YouTubeConcatenatedPlayer({
 
     if (!window.YT || !window.YT.Player) {
       loadIframeAPI();
-    } else {
-      // If API is already loaded, and player not initialized, initialize it
-      if (!playerRef.current) {
-        window.onYouTubeIframeAPIReady();
-      }
+    } else if (!playerRef.current) {
+      window.onYouTubeIframeAPIReady();
     }
 
     return () => {
-      // Clean up the player instance if the component unmounts
-      // and the iframe API is loaded.
-      if (
-        playerRef.current &&
-        typeof playerRef.current.destroy === "function"
-      ) {
-        // playerRef.current.destroy(); // This can cause issues with HMR
-        // playerRef.current = null;
-      }
-      // It's usually better not to remove onYouTubeIframeAPIReady globally
-      // unless you are sure no other component might need it.
-      // For HMR, it can be tricky.
+      // cleanup
     };
-  }, [videoId, height, width, segments]); // Added segments to re-init if segments change fundamentally
+  }, [videoId, height, width, segments, playbackRate]);
 
   /* ---------- playback helpers ---------- */
   const stopRaf = () => {
@@ -192,23 +181,20 @@ export default function YouTubeConcatenatedPlayer({
   };
 
   const tick = useCallback(() => {
-    if (!playerRef.current || !playerRef.current.getCurrentTime) {
+    if (!playerRef.current?.getCurrentTime) {
       stopRaf();
       return;
     }
     const realNow = playerRef.current.getCurrentTime();
     const virtNow = realToVirtual(realNow);
 
-    // Find current segment based on virtual time
     let currentSegIdx = segments.findIndex(
       (_, i) =>
         virtNow >= cumulative[i] && virtNow < cumulative[i] + segLengths[i]
     );
     if (currentSegIdx === -1 && virtNow >= totalDuration && totalDuration > 0) {
-      // Handle end of all segments
       currentSegIdx = segments.length - 1;
     } else if (currentSegIdx === -1 && segments.length > 0) {
-      // Default to first if not found (e.g. before start)
       currentSegIdx = 0;
     }
 
@@ -217,8 +203,6 @@ export default function YouTubeConcatenatedPlayer({
       const segEndVirtual =
         cumulative[currentSegIdx] + segLengths[currentSegIdx];
 
-      // If real time is outside the current segment's bounds (e.g. due to YouTube's own buffering skips)
-      // or if we are very close to the end of a segment
       if (
         realNow < currentSegment.start - 0.1 ||
         realNow >= currentSegment.end - 0.1 ||
@@ -226,64 +210,44 @@ export default function YouTubeConcatenatedPlayer({
       ) {
         const nextSegIdx = currentSegIdx + 1;
         if (virtNow >= segEndVirtual - 0.1 && nextSegIdx < segments.length) {
-          // Move to next segment
-          const targetReal = segments[nextSegIdx].start;
-          playerRef.current.seekTo(targetReal, true);
-          // setVirtualTime might be slightly off due to seekTo, tick will correct
+          playerRef.current.seekTo(segments[nextSegIdx].start, true);
         } else if (
           virtNow >= totalDuration - 0.1 ||
           realNow >= segments[segments.length - 1].end - 0.1
         ) {
-          // Finished all segments or reached end of last segment
           setPlaying(false);
           stopRaf();
-          setVirtualTime(totalDuration); // Ensure virtual time is exactly at the end
-          playerRef.current.pauseVideo(); // Explicitly pause
+          setVirtualTime(totalDuration);
+          playerRef.current.pauseVideo();
           return;
         }
       }
     } else if (segments.length === 0) {
-      // No segments to play
       setPlaying(false);
       stopRaf();
       setVirtualTime(0);
-      if (playerRef.current?.pauseVideo) playerRef.current.pauseVideo();
+      playerRef.current?.pauseVideo();
       return;
     }
 
-    setVirtualTime(Math.min(virtNow, totalDuration)); // Clamp virtual time
+    setVirtualTime(Math.min(virtNow, totalDuration));
     rafId.current = requestAnimationFrame(tick);
-  }, [segments, segLengths, cumulative, totalDuration, realToVirtual]); // Removed virtualTime from deps
+  }, [segments, segLengths, cumulative, totalDuration, realToVirtual]);
 
-  // play, pause, handlePlayPause functions with modifications
-
+  /* ---------- control helpers ---------- */
   const handlePlayPause = () => {
     if (!isReady || !playerRef.current) return;
-    // If there are no segments, and the button somehow became enabled, do nothing.
-    if (segments.length === 0 && totalDuration === 0) {
-      console.warn("Play/Pause clicked but no segments are defined.");
-      return;
-    }
-
-    if (playing) {
-      pause();
-    } else {
-      play();
-    }
+    if (segments.length === 0 && totalDuration === 0) return;
+    playing ? pause() : play();
   };
 
   const play = () => {
     if (!isReady || !playerRef.current) return;
-    if (segments.length === 0) {
-      console.warn("YouTubeConcatenatedPlayer: Play called without segments.");
-      return;
-    }
+    if (segments.length === 0) return;
 
-    // Case 1: Restarting from the end of the concatenated video
     if (virtualTime >= totalDuration - 0.05 && totalDuration > 0) {
-      seekVirtual(0); // This seeks to virtual 0, which maps to segments[0].start
+      seekVirtual(0);
     } else if (virtualTime < 0.1) {
-      // Check if virtualTime is at or near the beginning
       const firstSegmentRealStart = segments[0].start;
       if (
         playerRef.current.getCurrentTime &&
@@ -294,11 +258,10 @@ export default function YouTubeConcatenatedPlayer({
       }
     }
 
-    // If execution reaches here, player is positioned (or was already positioned) correctly.
     playerRef.current.playVideo();
     setPlaying(true);
-    stopRaf(); // Clear any existing RAF
-    rafId.current = requestAnimationFrame(tick); // Start new RAF for time updates
+    stopRaf();
+    rafId.current = requestAnimationFrame(tick);
   };
 
   const pause = () => {
@@ -314,14 +277,9 @@ export default function YouTubeConcatenatedPlayer({
     const real = virtualToReal(clampedVirtual);
     playerRef.current.seekTo(real, true);
     setVirtualTime(clampedVirtual);
-    // If paused and seeking, keep it paused. If playing, seeking should not stop it.
-    // However, a seek often triggers a buffer state, then play.
-    // The onStateChange handler will manage the playing state.
-    // If not playing, ensure RAF is stopped after seek.
     if (!playing) {
       stopRaf();
     } else {
-      // If it was playing, restart RAF to ensure UI updates and segment logic continues
       stopRaf();
       rafId.current = requestAnimationFrame(tick);
     }
@@ -331,19 +289,14 @@ export default function YouTubeConcatenatedPlayer({
   useEffect(() => {
     return () => {
       stopRaf();
-      // Optional: destroy player on unmount. Be careful with HMR.
-      // if (playerRef.current && typeof playerRef.current.destroy === 'function') {
-      //   playerRef.current.destroy();
-      //   playerRef.current = null;
-      // }
     };
   }, []);
 
-  function formatTime(seconds: number) {
+  const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, "0")}`;
-  }
+  };
 
   /* ---------- UI ---------- */
   return (
@@ -357,7 +310,6 @@ export default function YouTubeConcatenatedPlayer({
           }}
         >
           <div id="yt-cc-player" />
-          {/* Transparent overlay to prevent clicks on iframe from playing/pausing */}
           <div
             style={{
               position: "absolute",
@@ -365,11 +317,9 @@ export default function YouTubeConcatenatedPlayer({
               left: 0,
               width: "100%",
               height: "100%",
-              zIndex: 1, // Ensure it's above the iframe
-              // backgroundColor: "rgba(255,0,0,0.1)", // For debugging visibility
+              zIndex: 1,
             }}
-            onClick={handlePlayPause} // Make overlay trigger your custom controls
-            onDoubleClick={() => {}}
+            onClick={handlePlayPause}
             aria-label={playing ? "Pause video" : "Play video"}
           />
         </div>
@@ -383,6 +333,15 @@ export default function YouTubeConcatenatedPlayer({
             disabled={!isReady || segments.length === 0}
           >
             {playing ? "Pause" : "Play"}
+          </Button>
+          {/* NEW ▶ playback rate toggle */}
+          <Button
+            onClick={cycleRate}
+            className="rounded px-3 py-1 border w-[3rem]"
+            disabled={!isReady || segments.length === 0}
+            title="Toggle speed"
+          >
+            {playbackRate}x
           </Button>
           <Slider
             min={0}
@@ -402,7 +361,7 @@ export default function YouTubeConcatenatedPlayer({
         <span className="font-black text-primary text-4xl">
           {reductionPercent?.toFixed(0)}% Reduction!
         </span>
-        <Button className="cursor-pointer" onClick={() => clickFunction()}>
+        <Button className="cursor-pointer" onClick={clickFunction}>
           Try Another!
         </Button>
       </div>

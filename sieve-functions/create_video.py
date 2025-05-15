@@ -19,7 +19,7 @@ from bs4 import BeautifulSoup
 # from google.genai import types
 import os
 import json
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 load_dotenv()
@@ -140,7 +140,8 @@ You are an AI editor that takes transcripts ofevideos and RUTHLESSLY cuts out an
 fluff, and details that aren't relevant to the major points of the video. The goal is
 to take a video and make it ADHD friendly, so you should aim for an 75-85% reduction in video length (SO YOU ARE POTENTIALLY CUTTING A LOT).
 You are kind of just like a turbo ADHD brain you just wanna get the point of the video and get OUT!
-You will be given a list of audio segments with their corresponding indices. 
+You will be given a chunk of a list of audio segments with their corresponding indices. 
+You will be given a chunk at a time not the entire video.
 Your goal is to select which indices to include in the video to remove the fluff, while also keeping things coherent.
 
 For example: 
@@ -163,41 +164,82 @@ result: {
 """
 
 
-def pick_segments(subtitles: List[Subtitle], summary: str, title: str, adhd_level):
-    joined_subs = "\n".join(f"{i}. {obj.text}" for i, obj in enumerate(subtitles))
-    user_prompt = f"""
-    Please reduce this transcript:
-    {joined_subs}
-    -----------------------------------------
-    Title:   {title}
-    Summary: {summary}
+def pick_segments(
+    subtitles: List[Subtitle],
+    summary: str,
+    title: str,
+    adhd_level: int,
+    *,
+    chunk_size: int = 150,  # ← slide-window length
+    overlap: int = 25,  # ← lines shared with the previous chunk
+    max_workers: int = 20,
+) -> List[int]:
     """
+    Break `subtitles` into overlapping chunks (`chunk_size`, `overlap`)
+    and ask Gemini which subtitle indices to keep.
 
-    print(user_prompt)
+    The result list is deduplicated and sorted.
+    """
+    if overlap >= chunk_size:
+        raise ValueError("`overlap` must be smaller than `chunk_size`")
 
-    completion = gemini_client.chat.completions.create(
-        # model="gemini-2.5-pro-preview-05-06",
-        model="gemini-2.5-flash-preview-04-17",
-        # model="gpt-4.5-preview",
-        # model="gpt-4o",
-        # model="gemini-2.0-flash",
-        reasoning_effort="medium",
-        messages=[
-            {
-                "role": "user",
-                "content": SYSTEM_PROMPT.replace(
-                    "VIDEO_REDUCTION_AMOUNT", get_adhd_length(adhd_level)
-                ),
-            },
-            {
-                "role": "user",
-                "content": user_prompt,
-            },
-        ],
-        response_format={"type": "json_object"},
-    )
+    step = chunk_size - overlap  # how far we advance the window
+    batches: List[List[Tuple[int, Subtitle]]] = []
 
-    return completion.choices[0].message.content
+    # ────────── build overlapping batches ──────────
+    start = 0
+    while start < len(subtitles):
+        end = min(start + chunk_size, len(subtitles))
+        batches.append([(i, subtitles[i]) for i in range(start, end)])
+        start += step  # slide the window forward
+
+    total_chunks = len(batches)
+
+    # ────────── helpers ──────────
+    def _build_prompt(batch: List[Tuple[int, Subtitle]], chunk_num: int) -> str:
+        joined = "\n".join(f"{idx}. {sub.text}" for idx, sub in batch)
+        return (
+            f"This is chunk #{chunk_num} out of {total_chunks} "
+            "chunks in the transcript for the length of the video.\n\n"
+            "Please reduce this transcript:\n"
+            f"{joined}\n"
+            "-----------------------------------------\n"
+            f"Title:   {title}\n"
+            f"Summary: {summary}\n"
+        )
+
+    def _call_gemini(batch: List[Tuple[int, Subtitle]], chunk_num: int) -> List[int]:
+        prompt = _build_prompt(batch, chunk_num)
+        completion = gemini_client.chat.completions.create(
+            model="gemini-2.5-flash-preview-04-17",
+            reasoning_effort="medium",
+            messages=[
+                {
+                    "role": "user",
+                    "content": SYSTEM_PROMPT.replace(
+                        "VIDEO_REDUCTION_AMOUNT", get_adhd_length(adhd_level)
+                    ),
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format={"type": "json_object"},
+        )
+        data = safe_json(completion.choices[0].message.content)["result"]
+        print(f"Chunk {chunk_num} result, ", data)
+        return data if isinstance(data, list) else data.get("indices", [])
+
+    # ────────── launch requests in parallel ──────────
+    chosen: List[int] = []
+    with ThreadPoolExecutor(max_workers=min(max_workers, total_chunks)) as pool:
+        futures = {
+            pool.submit(_call_gemini, batch, i + 1): i
+            for i, batch in enumerate(batches)
+        }
+        for future in as_completed(futures):
+            chosen.extend(map(int, future.result()))
+
+    # remove duplicates introduced by the 25-line overlap
+    return sorted(set(chosen))
 
 
 SUMMARY_SYSTEM_PROMPT = """You are an AI summarizer, that takes in a transcript of a Youtube video
@@ -834,8 +876,7 @@ def task_process_subtitles_and_segments(
     # subtitles, title = get_subtitles_title(youtube_video_url)
 
     summary = generate_summary(subtitles, title)
-    raw_segments_data = pick_segments(subtitles, summary, title, adhd_level)
-    segments = safe_json(raw_segments_data)["result"]
+    segments = pick_segments(subtitles, summary, title, adhd_level)
 
     # all_segments = range(len(subtitles))
     # segments = [

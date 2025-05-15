@@ -154,7 +154,7 @@ export default function Home() {
       </div>
 
       <div
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3
+        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 rounded
        gap-4 mb-[7rem] w-full md:w-3/4 px-4 bg-[#ffffff66] backdrop-blur-md border p-3"
       >
         {demoVideos.map((video) => (
