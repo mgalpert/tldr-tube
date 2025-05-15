@@ -10,6 +10,7 @@ import { getJobStatus, submitVideo } from "./actions";
 import { WavesBackground } from "@/components/waves-background";
 import YouTubeSegmentPlayer from "@/components/yt-player";
 import YouTubeConcatenatedPlayer from "@/components/yt-player";
+import { LogoIcon } from "./SieveLogo";
 
 const pollJobStatus = async (jobId: string): Promise<any[] | undefined> => {
   console.log("Polling job", jobId);
@@ -88,11 +89,19 @@ export default function Home() {
   };
 
   return (
-    <main className="flex flex-col items-center justify-center gap-4">
+    <main className="flex flex-col items-center justify-center gap-4 px-4">
       <WavesBackground />
       {/* <WavyBackground /> */}
       {/* <BlobBackground /> */}
       {/* <PurpleGradientBackground /> */}
+      <a
+        className="flex p-2 px-4 items-center gap-3 absolute top-2 right-2 text-sm rounded 
+       bg-[#Affffff66] backdrop-blur-md border rounded-full hover:bg-muted cursor-pointer"
+        href={"https://www.sievedata.com/"}
+      >
+        Powered by
+        <LogoIcon />
+      </a>
       <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
         {!loading && resultSegments.length === 0 && (
           <>
@@ -105,7 +114,7 @@ export default function Home() {
                 placeholder="Youtube Video Url"
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
-                className="w-[25rem] bg-background"
+                className="md:w-[25rem] bg-background"
                 disabled={loading}
               />
               <Button
@@ -160,6 +169,7 @@ export default function Home() {
               playbackId={video.after}
               className="w-full aspect-video"
               controls
+              autoPlay={false}
             />
           </div>
         ))}
