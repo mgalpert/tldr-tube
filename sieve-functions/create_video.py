@@ -39,41 +39,6 @@ def download_video(url):
     include_audio = True
     start_time = 0
     end_time = -1
-    include_metadata = False
-    metadata_fields = ["title", "duration"]
-    include_subtitles = False
-    subtitle_languages = ["en"]
-    video_format = "mp4"
-    audio_format = "mp3"
-
-    youtube_downloader = sieve.function.get("sieve/youtube-downloader")
-    output = youtube_downloader.run(
-        url,
-        download_type,
-        resolution,
-        include_audio,
-        start_time,
-        end_time,
-        include_metadata,
-        metadata_fields,
-        include_subtitles,
-        subtitle_languages,
-        video_format,
-        audio_format,
-    )
-
-    for index, output_object in enumerate(output):
-        video = output_object
-
-    return video
-
-
-def download_video_subtitles(url):
-    download_type = "subtitles"
-    resolution = "720p"
-    include_audio = True
-    start_time = 0
-    end_time = -1
     include_metadata = True
     metadata_fields = ["title", "duration"]
     include_subtitles = True
@@ -100,10 +65,12 @@ def download_video_subtitles(url):
     for index, output_object in enumerate(output):
         if index == 0:
             title = output_object["title"]
-        else:
-            subtitle_path = output_object["en"].path
+        elif index == 1:
+            video_path = output_object.path
+        elif index == 2:
+            subtitles_path = output_object["en"].path
 
-    return subtitle_path, title
+    return video_path, subtitles_path, title
 
 
 class Subtitle:
@@ -164,41 +131,14 @@ def get_adhd_length(adhd_level: Literal["relaxed", "normal", "hyper"]) -> str:
         return "1/2 to 1/3rd "
 
 
-SYSTEM_PROMPT_REMOVE = """
-You are an AI editor that takes transcripts of videos and cuts out any
-fluff, and details that aren't relevant to the major points of the video. The goal is
-to take a video and make it ADHD friendly, so you should aim for a VIDEO_REDUCTION_AMOUNT in video length
-of the video. Make sure that you also still ensure that any thoughts are complete.
-You will be given a list of audio segments with their corresponding indices. 
-And your goal is to return the indicies of which segments to remove from the final result.
-
-For example: 
-
-0. "transcript text segment 1..."
-1. "transcript text segment 2..."
-2. "transcript text segment 3..."
-
-
-Additionally you will be given a summary of the video which encapsulates the main points that you need 
-to include in the video. Also you will be given the title of the video, this is the main thing people 
-who are watching the video are trying to figure out.
-
-Please return your response in a JSON array of just the indices of which segments are unimportant to
-the main point of the video. For example: 
-
-result: {
-    [0, 2]
-}
-"""
-
 SYSTEM_PROMPT = """
-You are an AI editor that takes transcripts of videos and cuts out any
+You are an AI editor that takes transcripts ofevideos and RUTHLESSLY cuts out any
 fluff, and details that aren't relevant to the major points of the video. The goal is
-to take a video and make it ADHD friendly, so you should aim for a VIDEO_REDUCTION_AMOUNT in video length
-of the video. Make sure that you also still ensure that any thoughts are complete.
-Ensure that thoughts are completle, try to include more segments than necessary if it is required 
-for completing the full thought in the sentence. You will be given a list of audio segments with 
-their corresponding indices. Your goal is to select which indices to include in the video to remove 
+to take a video and make it ADHD friendly, so you should aim for an 75-85% reduction in video length
+(SO YOU ARE POTENTIALLY CUTTING A LOT). Make sure that you also still ensure that any thoughts are complete.
+You are kind of just like a turbo ADHD brain you just wanna get the point of the video and get OUT!
+You will be given a list of audio segments with their corresponding indices. 
+Your goal is to select which indices to include in the video to remove 
 the fluff, while also keeping things coherent, with each segment representing a complete thought.
 
 For example: 
@@ -233,12 +173,13 @@ def pick_segments(subtitles: List[Subtitle], summary: str, title: str, adhd_leve
 
     print(user_prompt)
 
-    completion = gemini_client.chat.completions.create(
+    completion = openai_client.chat.completions.create(
         # model="gemini-2.5-pro-preview-05-06",
-        model="gemini-2.5-flash-preview-04-17",
+        # model="gemini-2.5-flash-preview-04-17",
+        model="gpt-4.5-preview",
         # model="gpt-4o",
         # model="gemini-2.0-flash",
-        reasoning_effort="low",
+        # reasoning_effort="medium",
         messages=[
             {
                 "role": "user",
@@ -255,53 +196,6 @@ def pick_segments(subtitles: List[Subtitle], summary: str, title: str, adhd_leve
     )
 
     return completion.choices[0].message.content
-
-
-# def pick_segments_genai(
-#     subtitles: List[Subtitle], summary: str, title: str, adhd_level
-# ):
-#     joined_subs = "\n".join(f"{i}. {obj.text}" for i, obj in enumerate(subtitles))
-#     user_prompt = f"""
-#     Please reduce this transcript:
-#     {joined_subs}
-#     -----------------------------------------
-#     Title:   {title}
-#     Summary: {summary}
-#     """
-
-#     print(user_prompt)
-#     # Construct system and user messages
-#     contents = [
-#         types.Content(
-#             role="user",
-#             parts=[
-#                 types.Part.from_text(
-#                     text=SYSTEM_PROMPT.replace(
-#                         "VIDEO_REDUCTION_AMOUNT", get_adhd_length(adhd_level)
-#                     )
-#                 )
-#             ],
-#         ),
-#         types.Content(
-#             role="user",
-#             parts=[types.Part.from_text(text=user_prompt)],
-#         ),
-#     ]
-
-#     # Optional: config with "thinking budget" and desired response format
-#     generate_content_config = types.GenerateContentConfig(
-#         thinking_config=types.ThinkingConfig(thinking_budget=1000),
-#         response_mime_type="application/json",
-#     )
-
-#     # Call Gemini
-#     response = client.models.generate_content(
-#         model="gemini-2.5-flash-preview-04-17",
-#         contents=contents,
-#         config=generate_content_config,
-#     )
-
-#     return response.text
 
 
 SUMMARY_SYSTEM_PROMPT = """You are an AI summarizer, that takes in a transcript of a Youtube video
@@ -334,7 +228,7 @@ def generate_summary(subtitles: List[Subtitle], title) -> str:
 
 
 def detect_silence_midpoints(
-    video_path: str, silence_duration: float = 0.2
+    video_path: str, silence_duration: float = 0.1
 ) -> List[float]:
     mid_start = time.time()
     cmd = [
@@ -622,19 +516,18 @@ def get_transcription(
     return subtitles
 
 
-def task_download_video(youtube_video_url: str):
+def task_process_midpoints(video_path: str):
     """Part 1: Download video"""
-    video = download_video(youtube_video_url)
-    video_path = video.path
     midpoints = detect_silence_midpoints(video_path)
     print("Finished Part 1: Detect silence midpoints + download video")
-    return video_path, midpoints
+    return midpoints
 
 
-def task_process_subtitles_and_segments(youtube_video_url: str, adhd_level: str):
+def task_process_subtitles_and_segments(
+    subtitles_path: str, title: str, adhd_level: str
+):
     """Part 2: Download subtitles/title, then generate subtitle + pick segments"""
     print("Starting Part 2: Process subtitles and segments")
-    subtitles_path, title = download_video_subtitles(youtube_video_url)
     subtitles = load_subtitles(subtitles_path)
 
     summary = generate_summary(subtitles, title)
@@ -646,11 +539,7 @@ def task_process_subtitles_and_segments(youtube_video_url: str, adhd_level: str)
     # ]
     print(segments)
     print("Finished Part 2: Process subtitles and segments")
-    return (
-        subtitles,
-        segments,
-        title,
-    )  # title might not be needed later, but good to have if summary generation needs it
+    return subtitles, segments
 
 
 @sieve.function(
@@ -666,27 +555,28 @@ def create_adhd_video(
         f"Running parallel ADHD video creation for: {youtube_video_url} with level: {adhd_level}"
     )
     overall_start_time = time.time()
+    video_path, subtitles_path, title = download_video(youtube_video_url)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         # Submit tasks to the executor
-        future_video_silences = executor.submit(task_download_video, youtube_video_url)
+        future_video_silences = executor.submit(task_process_midpoints, video_path)
         future_subs_segments = executor.submit(
-            task_process_subtitles_and_segments, youtube_video_url, adhd_level
+            task_process_subtitles_and_segments, subtitles_path, title, adhd_level
         )
 
         # Retrieve results - these calls will block until the respective task is complete
         print("Waiting for parallel tasks to complete...")
 
         start_wait_video = time.time()
-        video_path, midpoints = future_video_silences.result()  # Contains video.path
+        midpoints = future_video_silences.result()  # Contains video.path
         print(
             f"Video download finished.. Time taken by task: {time.time() - start_wait_video:.2f}s (approx, depends on when it actually finished)"
         )
         print("# mids: ", len(midpoints) if midpoints else 0)
-        # print(midpoints)
+        print(midpoints[:20])
 
         start_wait_subs = time.time()
-        subtitles, segments, _ = (
+        subtitles, segments = (
             future_subs_segments.result()
         )  # title is also returned but not used in concat
         print(
