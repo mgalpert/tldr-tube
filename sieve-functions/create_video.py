@@ -1,4 +1,5 @@
-from bisect import bisect_left, bisect_right
+from bisect import bisect, bisect_left, bisect_right
+from youtube_transcript_api import YouTubeTranscriptApi
 from pathlib import Path
 import re
 import shutil
@@ -10,6 +11,9 @@ import sieve
 import webvtt
 from dotenv import load_dotenv
 import openai
+import requests
+from bs4 import BeautifulSoup
+
 
 # from google import genai
 # from google.genai import types
@@ -34,7 +38,7 @@ gemini_client = openai.OpenAI(
 
 
 def download_video(url):
-    download_type = "video"
+    download_type = "audio"
     resolution = "720p"
     include_audio = True
     start_time = 0
@@ -66,11 +70,11 @@ def download_video(url):
         if index == 0:
             title = output_object["title"]
         elif index == 1:
-            video_path = output_object.path
+            audio_path = output_object.path
         elif index == 2:
             subtitles_path = output_object["en"].path
 
-    return video_path, subtitles_path, title
+    return audio_path, title, subtitles_path
 
 
 class Subtitle:
@@ -171,13 +175,13 @@ def pick_segments(subtitles: List[Subtitle], summary: str, title: str, adhd_leve
 
     print(user_prompt)
 
-    completion = openai_client.chat.completions.create(
+    completion = gemini_client.chat.completions.create(
         # model="gemini-2.5-pro-preview-05-06",
-        # model="gemini-2.5-flash-preview-04-17",
-        model="gpt-4.5-preview",
+        model="gemini-2.5-flash-preview-04-17",
+        # model="gpt-4.5-preview",
         # model="gpt-4o",
         # model="gemini-2.0-flash",
-        # reasoning_effort="medium",
+        reasoning_effort="medium",
         messages=[
             {
                 "role": "user",
@@ -226,16 +230,18 @@ def generate_summary(subtitles: List[Subtitle], title) -> str:
 
 
 def detect_silence_midpoints(
-    video_path: str, silence_duration: float = 0.1
+    audio_path: str, silence_duration: float = 0.25
 ) -> List[float]:
+    print(audio_path)
+    noise_threshold = "20dB"
     mid_start = time.time()
     cmd = [
         "ffmpeg",
         "-i",
-        video_path,
-        "-vn",
+        audio_path,
+        # "-vn",
         "-af",
-        f"silencedetect=noise=-30dB:d={silence_duration}",
+        f"silencedetect=noise=-{noise_threshold}:d={silence_duration}",
         "-f",
         "null",
         "-",
@@ -335,69 +341,345 @@ def _merge_segments(segs, *, gap=0.04):
     return merged
 
 
-def _concat_copy(src, segments, out):
-    from pathlib import Path
-    import tempfile, subprocess, shutil
+def convert_segments_to_dicts(segments):
+    return [{"start": start, "end": end} for start, end in segments]
 
-    tmp = Path(tempfile.mkdtemp())
-    listfile = tmp / "files.txt"
 
-    entries = []
-    for i, (ss, to) in enumerate(segments):
-        cut = tmp / f"cut{i:04d}.mp4"
-        subprocess.run(
-            [
+import subprocess
+import os
+import tempfile
+import re
+
+
+def get_keyframe_times(video_path):
+    """
+    Gets keyframe timestamps using the ffprobe command:
+    ffprobe -select_streams v -show_entries frame=pict_type,pts_time -of csv=p=0 -skip_frame nokey -i <video_path>
+    It parses the CSV output where each line is "pts_time,pict_type".
+    Keyframes are identified by pict_type 'I'.
+    """
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",  # Suppress verbose output, show only errors
+        "-select_streams",
+        "v:0",  # Select the first video stream (v or v:0)
+        "-show_entries",
+        "frame=pict_type,pts_time",  # Get picture type and its PTS time
+        "-of",
+        "csv=p=0",  # CSV output, no print_section (no "frame:")
+        "-skip_frame",
+        "nokey",  # Only output lines for keyframes (I-frames)
+        "-i",
+        video_path,
+    ]
+
+    kf_times = []
+    print(
+        f"Attempting to get keyframes for '{video_path}' with command: {' '.join(cmd)}"
+    )
+    try:
+        # We don't redirect to Iframes.txt here, we capture stdout directly
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        lines = result.stdout.strip().splitlines()
+
+        if not lines and result.stderr:  # If no stdout but there is stderr, print it
+            print(
+                f"  Warning: ffprobe produced no stdout. Stderr: {result.stderr.strip()}"
+            )
+
+        for line_num, line in enumerate(lines):
+            parts = line.strip().split(",")
+            # Expected format: "pts_time,pict_type" (sometimes with a trailing comma like "0.007000,I,")
+            if len(parts) >= 2:
+                pts_time_str = parts[0]
+                pict_type_str = parts[1]
+
+                # The -skip_frame nokey should ensure only I-frames are here,
+                # but a check doesn't hurt if ffprobe behavior varies.
+                # However, the command given explicitly uses -skip_frame nokey,
+                # so every line *should* be a keyframe.
+                # If we were not using -skip_frame nokey, we would check:
+                # if pict_type_str.strip().upper() == 'I':
+
+                try:
+                    kf_times.append(float(pts_time_str))
+                except ValueError:
+                    print(
+                        f"  Warning: Could not parse pts_time '{pts_time_str}' from line {line_num+1}: '{line}'"
+                    )
+            elif (
+                line.strip()
+            ):  # Non-empty line that doesn't split into at least 2 parts
+                print(
+                    f"  Warning: Malformed line {line_num+1} in ffprobe output: '{line}'"
+                )
+
+        kf_times = sorted(list(set(kf_times)))  # Remove duplicates and sort
+
+        if not kf_times:
+            # This can happen if the video truly has no keyframes reported by this command,
+            # or if ffprobe had an issue that didn't cause a non-zero exit code.
+            print(
+                f"Warning: ffprobe command executed for '{video_path}' but parsed no keyframe timestamps "
+                "from its output. This could mean the video has no detectable keyframes with this command, "
+                "or the output was empty/unexpected."
+            )
+            if result.stdout:
+                print(
+                    f"  Raw ffprobe stdout (first 500 chars): '{result.stdout[:500]}'"
+                )
+            if result.stderr:
+                print(
+                    f"  Raw ffprobe stderr (first 500 chars): '{result.stderr[:500]}'"
+                )
+            print(
+                "  Defaulting to [0.0] as a keyframe. Lossless cutting accuracy will be poor."
+            )
+            return [0.0]  # Fallback
+
+        print(
+            f"Found {len(kf_times)} keyframes. First few: {kf_times[:10]}, Last few: {kf_times[-5:] if len(kf_times) > 5 else kf_times}"
+        )
+        return kf_times
+
+    except subprocess.CalledProcessError as e:
+        print(
+            f"Error: ffprobe command failed while trying to get keyframes for '{video_path}'."
+        )
+        print(f"  Command: {' '.join(e.cmd)}")
+        print(f"  Return code: {e.returncode}")
+        if e.stderr:
+            print(f"  Stderr: {e.stderr.strip()}")
+        if e.stdout:
+            print(f"  Stdout (if any before error): {e.stdout.strip()}")
+        print(
+            "Falling back to assuming [0.0] as the only keyframe due to ffprobe error. "
+            "Lossless cutting will likely be inaccurate."
+        )
+        return [0.0]
+    except Exception as e_gen:
+        print(f"An unexpected Python error occurred in get_keyframe_times: {e_gen}")
+        import traceback
+
+        traceback.print_exc()
+        print(
+            "Falling back to assuming [0.0] as the only keyframe. Results will be inaccurate."
+        )
+        return [0.0]
+
+
+def find_closest_keyframe_before_or_at(target_time, keyframe_times):
+    """Finds the largest keyframe time less than or equal to target_time."""
+    if (
+        not keyframe_times
+    ):  # Should ideally not happen if get_keyframe_times has a fallback
+        print(
+            "Critical Warning: find_closest_keyframe_before_or_at called with empty keyframe_times list."
+        )
+        return max(0.0, target_time)  # A desperate fallback
+
+    valid_kfs = [kf for kf in keyframe_times if kf <= target_time]
+
+    if not valid_kfs:
+        # Target time is before the first actual keyframe in the list (e.g., target_time = 0.5, kf_times = [1.0, 2.0])
+        # Or target_time is negative.
+        # Returning 0.0 here makes ffmpeg -ss 0.0 ... which will then pick the first actual keyframe.
+        # This seems like a reasonable behavior.
+        return 0.0
+    return max(valid_kfs)
+
+
+def _concat_lossless(video_path, segments, output_path):
+    if not os.path.exists(video_path):
+        print(f"Error: Video path '{video_path}' does not exist.")
+        return
+
+    print("Fetching keyframe information...")
+    keyframe_times = get_keyframe_times(video_path)
+
+    if not keyframe_times or (
+        len(keyframe_times) == 1
+        and keyframe_times[0] == 0.0
+        and max(s[0] for s in segments) > 0
+    ):
+        # This check indicates get_keyframe_times might have failed to find diverse keyframes
+        # and we are likely to cut everything from 0.0 if segments start later.
+        print(
+            "Warning: Keyframe detection might have been suboptimal. Proceeding with available keyframes."
+        )
+
+    temp_files = []
+    temp_dir = tempfile.mkdtemp(prefix="ffmpeg_concat_")
+    list_file_path = os.path.join(temp_dir, "mylist.txt")
+
+    try:
+        print(f"Extracting segments to temporary directory: {temp_dir}")
+        for i, (ss, to) in enumerate(segments):
+            if ss < 0:
+                print(
+                    f"Segment {i}: Start time {ss:.3f}s is negative. Adjusting to 0.0s."
+                )
+                ss = 0.0
+            if ss >= to:
+                print(
+                    f"Skipping invalid segment {i}: start time {ss:.3f}s >= end time {to:.3f}s"
+                )
+                continue
+
+            actual_ss = find_closest_keyframe_before_or_at(ss, keyframe_times)
+            duration = to - actual_ss
+
+            if duration <= 1 / 1000:  # Using a small epsilon for duration check
+                print(
+                    f"Skipping segment {i}: Adjusted duration ({duration:.3f}s) is too small or negative. "
+                    f"Original: [{ss:.3f}s, {to:.3f}s], Adjusted start: {actual_ss:.3f}s"
+                )
+                continue
+
+            if abs(actual_ss - ss) > 0.01:  # Report if start time shifted noticeably
+                print(
+                    f"Segment {i}: Original start {ss:.3f}s adjusted to keyframe at {actual_ss:.3f}s."
+                )
+
+            base, orig_ext = os.path.splitext(os.path.basename(video_path))
+            temp_output_segment = os.path.join(
+                temp_dir, f"segment_{i}{orig_ext if orig_ext else '.mp4'}"
+            )
+
+            # -ss is an input option (fast seek to keyframe at or before actual_ss)
+            # -t is duration from that actual_ss
+            cmd_extract = [
                 "ffmpeg",
-                "-hide_banner",
-                "-loglevel",
-                "error",
+                "-y",
                 "-ss",
-                str(ss),
-                "-to",
-                str(to),
+                str(actual_ss),
                 "-i",
-                src,
+                video_path,
+                "-t",
+                str(duration),
                 "-c",
                 "copy",
-                "-reset_timestamps",
-                "1",  # <── changed
-                "-y",
-                cut,
-            ],
-            check=True,
-        )
-        entries.append(f"file '{cut}'")
+                "-map",
+                "0",  # Copy all streams
+                "-avoid_negative_ts",
+                "make_zero",
+                temp_output_segment,
+            ]
+            print(f"  Executing: {' '.join(cmd_extract)}")
+            extract_result = subprocess.run(
+                cmd_extract,
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            if extract_result.returncode != 0:
+                print(f"  FFmpeg Error during segment {i} extraction:")
+                print(f"    Command: {' '.join(cmd_extract)}")
+                print(f"    Stdout: {extract_result.stdout}")
+                print(f"    Stderr: {extract_result.stderr}")
+                print(f"  Skipping segment {i} due to extraction error.")
+                continue
 
-    listfile.write_text("\n".join(entries))
+            if (
+                os.path.exists(temp_output_segment)
+                and os.path.getsize(temp_output_segment) > 100
+            ):
+                temp_files.append(temp_output_segment)
+            else:
+                print(
+                    f"  Warning: Temp segment {temp_output_segment} for seg {i} not created or is empty."
+                )
+                print(f"    FFmpeg Stdout: {extract_result.stdout}")
+                print(f"    FFmpeg Stderr: {extract_result.stderr}")
 
-    subprocess.run(
-        [
+        if not temp_files:
+            print("No valid segments were extracted to concatenate.")
+            return
+
+        with open(list_file_path, "w") as f:
+            for temp_file in temp_files:
+                f.write(f"file '{os.path.basename(temp_file)}'\n")
+
+        print(f"\nConcatenating {len(temp_files)} segments...")
+        cmd_concat = [
             "ffmpeg",
-            "-hide_banner",
-            "-loglevel",
-            "error",
+            "-y",
             "-f",
             "concat",
             "-safe",
             "0",
             "-i",
-            listfile,
+            list_file_path,
             "-c",
             "copy",
             "-movflags",
             "+faststart",
-            "-y",
-            out,
-        ],
-        check=True,
-    )
+            output_path,
+        ]
+        print(f"  Executing: {' '.join(cmd_concat)}")
+        concat_result = subprocess.run(
+            cmd_concat,
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+        if concat_result.returncode != 0:
+            print(f"  FFmpeg Error during final concatenation:")
+            print(f"    Command: {' '.join(cmd_concat)}")
+            print(f"    Stdout: {concat_result.stdout}")
+            print(f"    Stderr: {concat_result.stderr}")
+            print(
+                f"  Concatenation failed. Output file '{output_path}' may be incomplete or invalid."
+            )
+        else:
+            print(f"\nLossless concatenation complete. Output: {output_path}")
 
-    shutil.rmtree(tmp, ignore_errors=True)
+    except Exception as e:
+        print(f"An unexpected Python error occurred during processing: {e}")
+        import traceback
+
+        traceback.print_exc()
+    finally:
+        print("Cleaning up temporary files...")
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except OSError as e_rm:
+                    print(f"  Warning: Could not remove temp file {temp_file}: {e_rm}")
+        if os.path.exists(list_file_path):
+            try:
+                os.remove(list_file_path)
+            except OSError as e_rm:
+                print(
+                    f"  Warning: Could not remove temp list file {list_file_path}: {e_rm}"
+                )
+        if os.path.exists(temp_dir):
+            try:
+                if not os.listdir(temp_dir):
+                    os.rmdir(temp_dir)
+                else:
+                    print(
+                        f"  Temp directory {temp_dir} not empty. Manual cleanup may be needed."
+                    )
+            except OSError as e_rmdir:
+                print(
+                    f"  Warning: Could not remove temp directory {temp_dir}: {e_rmdir}"
+                )
 
 
-# ------------------------------------------------------------------
-# 2B.  Frame-accurate re-encode (GPU if you have one)
-# ------------------------------------------------------------------
 def _concat_encode(video_path, segments, output):
     sel_expr = "+".join(f"between(t,{ss},{to})" for ss, to in segments)
 
@@ -446,6 +728,7 @@ def concat_by_select(
         raise ValueError("No non-empty segments to keep 🤷‍♂️")
 
     _concat_encode(video_path, segments, output)
+    # _concat_lossless(video_path, segments, output)
 
 
 def get_transcription(
@@ -514,23 +797,46 @@ def get_transcription(
     return subtitles
 
 
-def task_process_midpoints(video_path: str):
+def task_process_midpoints(video_url: str, audio_path: str):
     """Part 1: Download video"""
-    midpoints = detect_silence_midpoints(video_path)
+    print(audio_path)
+    midpoints = detect_silence_midpoints(audio_path)
     print("Finished Part 1: Detect silence midpoints + download video")
     return midpoints
 
 
+def get_youtube_title(video_url):
+    response = requests.get(video_url)
+    soup = BeautifulSoup(response.text, "html.parser")
+    return soup.title.string
+
+
+def get_subtitles_title(youtube_video_url: str):
+    video_id = youtube_video_url.split("=")[1]
+    transcript_raw = YouTubeTranscriptApi.get_transcript(video_id)
+    subtitles = [
+        Subtitle(
+            text=subtitle["text"],
+            start=float(subtitle["start"]),
+            end=float(subtitle["start"]) + float(subtitle["duration"]),
+        )
+        for subtitle in transcript_raw
+    ]
+    title = get_youtube_title(youtube_video_url)
+    return subtitles, title
+
+
 def task_process_subtitles_and_segments(
-    subtitles_path: str, title: str, adhd_level: str
+    youtube_video_url: str, adhd_level: str, subtitles: List[Subtitle], title: str
 ):
     """Part 2: Download subtitles/title, then generate subtitle + pick segments"""
     print("Starting Part 2: Process subtitles and segments")
-    subtitles = load_subtitles(subtitles_path)
+    # subtitles, title = get_subtitles_title(youtube_video_url)
 
     summary = generate_summary(subtitles, title)
     raw_segments_data = pick_segments(subtitles, summary, title, adhd_level)
     segments = safe_json(raw_segments_data)["result"]
+
     # all_segments = range(len(subtitles))
     # segments = [
     #     segment for segment in all_segments if segment not in segments_to_remove
@@ -542,7 +848,13 @@ def task_process_subtitles_and_segments(
 
 @sieve.function(
     name="create-adhd-video",  # Renamed to distinguish
-    python_packages=["python-dotenv", "openai", "webvtt-py"],
+    python_packages=[
+        "python-dotenv",
+        "openai",
+        "webvtt-py",
+        "beautifulsoup4",
+        "youtube-transcript-api",
+    ],
     system_packages=["ffmpeg"],
 )
 def create_adhd_video(
@@ -553,13 +865,23 @@ def create_adhd_video(
         f"Running parallel ADHD video creation for: {youtube_video_url} with level: {adhd_level}"
     )
     overall_start_time = time.time()
-    video_path, subtitles_path, title = download_video(youtube_video_url)
+    audio_path, title, subtitles_path = download_video(youtube_video_url)
+    # video_path = "tmp7e1_greu.mp4"
+    # title = "How AI is Reinventing Software Business Models ft. Bret Taylor of Sierra"
+    # subtitles_path = "subtitles.vtt"
+    subtitles = load_subtitles(subtitles_path)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         # Submit tasks to the executor
-        future_video_silences = executor.submit(task_process_midpoints, video_path)
+        future_video_silences = executor.submit(
+            task_process_midpoints, youtube_video_url, audio_path
+        )
         future_subs_segments = executor.submit(
-            task_process_subtitles_and_segments, subtitles_path, title, adhd_level
+            task_process_subtitles_and_segments,
+            youtube_video_url,
+            adhd_level,
+            subtitles,
+            title,
         )
 
         # Retrieve results - these calls will block until the respective task is complete
@@ -592,12 +914,18 @@ def create_adhd_video(
 
     print(f"Starting final concatenation to {output_path}...")
     concat_start_time = time.time()
-    concat_by_select(video_path, subtitles, segments, output_path, midpoints)
+    # concat_by_select(video_path, subtitles, segments, output_path, midpoints)
+
+    subtitles = merge_subtitles(subtitles, segments)
+    raw = _segments_from_subs(subtitles, midpoints)
+    segments = _merge_segments(raw)
+    print("will keep", segments)
 
     print(f"Concatenation finished. Time taken: {time.time() - concat_start_time:.2f}s")
     print(f"Total function execution time: {time.time() - overall_start_time:.2f}s")
 
-    return sieve.File(path=output_path)
+    # return sieve.File(path=output_path)
+    return convert_segments_to_dicts(segments)
 
 
 # create_adhd_video("https://www.youtube.com/watch?v=sjeie9Y7AZk")

@@ -8,17 +8,19 @@ import { Spinner } from "@/components/ui/spinner";
 import MuxVideo from "@mux/mux-video-react";
 import { getJobStatus, submitVideo } from "./actions";
 import { WavesBackground } from "@/components/waves-background";
+import YouTubeSegmentPlayer from "@/components/yt-player";
+import YouTubeConcatenatedPlayer from "@/components/yt-player";
 
-const pollJobStatus = async (jobId: string): Promise<string | undefined> => {
+const pollJobStatus = async (jobId: string): Promise<any[] | undefined> => {
   console.log("Polling job", jobId);
 
-  const poll = async (): Promise<string | undefined> => {
+  const poll = async (): Promise<any[] | undefined> => {
     while (true) {
       const data = await getJobStatus(jobId);
       try {
         if (data.status === "finished") {
           console.log("Final job data:", data);
-          return data.outputs[0].data.url;
+          return data.outputs[0].data;
         } else if (data.status === "error") {
           console.error("Job failed:", data);
           return;
@@ -36,7 +38,7 @@ const pollJobStatus = async (jobId: string): Promise<string | undefined> => {
   return await poll();
 };
 
-const fetchVideo = async (videoUrl: string): Promise<string | undefined> => {
+const fetchVideo = async (videoUrl: string): Promise<any[] | undefined> => {
   console.log("fetching video...");
   const jobId = await submitVideo(videoUrl);
   if (!jobId) return;
@@ -54,6 +56,8 @@ export default function Home() {
   const [loading, setLoading] = useState<boolean>(false);
   const [resultVideo, setResultVideo] = useState<string>("");
   const [videoDuration, setVideoDuration] = useState<number>(0);
+  const [resultSegments, setResultSegments] = useState<any[]>([]);
+
   const demoVideos = [
     {
       before: "https://www.youtube.com/embed/Qc_kEyLsXH0",
@@ -76,7 +80,8 @@ export default function Home() {
     setLoading(true);
     const result = await fetchVideo(videoUrl);
     if (result) {
-      setResultVideo(result);
+      // setResultVideo(result);
+      setResultSegments(result);
       console.log("result", result);
     }
     setLoading(false);
@@ -89,7 +94,7 @@ export default function Home() {
       {/* <BlobBackground /> */}
       {/* <PurpleGradientBackground /> */}
       <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
-        {!loading && !resultVideo && (
+        {!loading && resultSegments.length === 0 && (
           <>
             <h1 className="font-bold text-5xl">
               <b className="bg-primary p-2 text-white">TLDR</b> Tube
@@ -113,23 +118,12 @@ export default function Home() {
             </div>
           </>
         )}
-        {resultVideo && (
-          <div className="flex flex-col h-full items-center justify-center gap-2">
-            <span className="font-black text-primary text-xl">
-              23% Reduction!
-            </span>
-            <video
-              className="h-3/4 aspect-video border border-primary"
-              src={resultVideo}
-              controls
-            />
-            <Button
-              className="cursor-pointer"
-              onClick={() => setResultVideo("")}
-            >
-              Try Another!
-            </Button>
-          </div>
+        {resultSegments.length > 0 && (
+          <YouTubeConcatenatedPlayer
+            videoId={videoUrl.split("=")[1]}
+            segments={resultSegments}
+            clickFunction={() => setResultSegments([])}
+          />
         )}
         {loading && (
           <div className="flex flex-col gap-2 md:h-full w-full items-center justify-center">

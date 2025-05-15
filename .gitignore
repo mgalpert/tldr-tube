@@ -43,3 +43,6 @@ next-env.d.ts
 __pycache__/
 .DS_Store
 venv/
+*.mp4
+sample_segments.txt
+*.vtt
