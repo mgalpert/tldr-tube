@@ -1,5 +1,6 @@
 import { Canvas, useFrame } from "@react-three/fiber";
 import { useMemo, useRef } from "react";
+//@ts-ignore
 import * as THREE from "three";
 
 /* ───── Build a geometry that contains horizontal lines only ───── */
