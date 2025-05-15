@@ -212,9 +212,9 @@ def pick_segments(
         prompt = _build_prompt(batch, chunk_num)
         completion = openai_client.chat.completions.create(
             # model="gemini-2.5-flash-preview-04-17",
-            model="gpt-4o",
+            model="gpt-4.5-preview",
             # model="gemini-2.5-pro-preview-05-06",
-            reasoning_effort="medium",
+            # reasoning_effort="medium",
             messages=[
                 {
                     "role": "user",

@@ -72,7 +72,7 @@ export default function YouTubeConcatenatedPlayer({
   const [playing, setPlaying] = useState(false);
   const [virtualTime, setVirtualTime] = useState(0);
   const [originalDuration, setOriginalDuration] = useState<number | null>(null);
-  const [playbackRate, setPlaybackRate] = useState<1 | 2>(2); // NEW ▶ default 2x
+  const [playbackRate, setPlaybackRate] = useState<1 | 2>(1); // NEW ▶ default 2x
 
   const reductionPercent = originalDuration
     ? 100 * (1 - totalDuration / originalDuration)
