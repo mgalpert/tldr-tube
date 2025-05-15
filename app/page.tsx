@@ -55,8 +55,6 @@ const convertVideoToEmbed = (videoUrl: string) => {
 export default function Home() {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
-  const [resultVideo, setResultVideo] = useState<string>("");
-  const [videoDuration, setVideoDuration] = useState<number>(0);
   const [resultSegments, setResultSegments] = useState<any[]>([]);
 
   const demoVideos = [
@@ -91,9 +89,6 @@ export default function Home() {
   return (
     <main className="flex flex-col items-center justify-center gap-4 px-4">
       <WavesBackground />
-      {/* <WavyBackground /> */}
-      {/* <BlobBackground /> */}
-      {/* <PurpleGradientBackground /> */}
       <a
         className="flex p-2 px-4 items-center gap-3 absolute top-2 right-2 text-sm rounded 
        bg-[#Affffff66] backdrop-blur-md border rounded-full hover:bg-muted cursor-pointer"
@@ -102,78 +97,90 @@ export default function Home() {
         Powered by
         <LogoIcon />
       </a>
-      <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
-        {!loading && resultSegments.length === 0 && (
-          <>
-            <h1 className="font-bold text-5xl">
-              <b className="bg-primary p-2 text-white">TLDR</b> Tube
-            </h1>
-            <span>Make any youtube video ADHD friendly.</span>
-            <div className="flex items-center gap-2">
-              <Input
-                placeholder="Youtube Video Url"
-                value={videoUrl}
-                onChange={(e) => setVideoUrl(e.target.value)}
-                className="md:w-[25rem] bg-background"
-                disabled={loading}
-              />
-              <Button
-                className="cursor-pointer"
-                onClick={() => processVideo()}
-                disabled={loading}
-              >
-                Generate
-              </Button>
-            </div>
-          </>
-        )}
-        {resultSegments.length > 0 && (
-          <YouTubeConcatenatedPlayer
-            videoId={videoUrl.split("=")[1]}
-            segments={resultSegments}
-            clickFunction={() => setResultSegments([])}
-          />
-        )}
-        {loading && (
-          <div className="flex flex-col gap-2 md:h-full w-full items-center justify-center">
-            <span className="font-bold text-xl text-primary">
-              TLDRing your video...
-            </span>
-            <div className="flex flex-col md:flex-row gap-2 w-full items-center justify-center">
-              <iframe
-                className="w-2/3 md:w-1/3 aspect-video"
-                src={convertVideoToEmbed(videoUrl)}
-              ></iframe>
-              <Skeleton className="w-2/3 md:w-1/3 aspect-video border border-primary flex flex-col items-center justify-center">
-                <Spinner />
-                This may take 2-3 minutes...
-              </Skeleton>
-            </div>
-          </div>
-        )}
-      </div>
+      {resultSegments.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
+          {!loading && (
+            <>
+              <h1 className="font-bold text-5xl">
+                <b className="bg-primary p-2 text-white">TLDR</b> Tube
+              </h1>
+              <span>Make any youtube video ADHD friendly.</span>
+              <div className="flex items-center gap-2">
+                <Input
+                  placeholder="Youtube Video Url"
+                  value={videoUrl}
+                  onChange={(e) => setVideoUrl(e.target.value)}
+                  className="md:w-[25rem] bg-background"
+                  disabled={loading}
+                />
+                <Button
+                  className="cursor-pointer"
+                  onClick={() => processVideo()}
+                  disabled={loading}
+                >
+                  Generate
+                </Button>
+              </div>
+            </>
+          )}
 
-      <div
-        className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 rounded
+          {loading && (
+            <div className="flex flex-col gap-2 md:h-full w-full items-center justify-center">
+              <span className="font-bold text-xl text-primary">
+                TLDRing your video...
+              </span>
+              <div className="flex flex-col md:flex-row gap-2 w-full items-center justify-center">
+                <iframe
+                  className="w-2/3 md:w-1/3 aspect-video"
+                  src={convertVideoToEmbed(videoUrl)}
+                ></iframe>
+                <Skeleton className="w-2/3 md:w-1/3 aspect-video border border-primary flex flex-col items-center justify-center">
+                  <Spinner />
+                  This may take 2-3 minutes...
+                </Skeleton>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {resultSegments.length > 0 && (
+        <YouTubeConcatenatedPlayer
+          videoId={videoUrl.split("=")[1]}
+          segments={resultSegments}
+          clickFunction={() => setResultSegments([])}
+        />
+      )}
+
+      {resultSegments.length === 0 && (
+        <div
+          className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 rounded
        gap-4 mb-[7rem] w-full md:w-3/4 px-4 bg-[#ffffff66] backdrop-blur-md border p-3"
-      >
-        {demoVideos.map((video) => (
-          <div className="flex flex-col items-center gap-2" key={video.before}>
-            <span>Original:</span>
-            <iframe className="w-full aspect-video" src={video.before}></iframe>
-            <span className="font-bold text-primary">
-              {video.percent}
-              {"% Reduction!"}
-            </span>
-            <MuxVideo
-              playbackId={video.after}
-              className="w-full aspect-video"
-              controls
-              autoPlay={false}
-            />
-          </div>
-        ))}
-      </div>
+        >
+          {demoVideos.map((video) => (
+            <div
+              className="flex flex-col items-center gap-2"
+              key={video.before}
+            >
+              <span>Original:</span>
+              <iframe
+                className="w-full aspect-video"
+                src={video.before}
+              ></iframe>
+              <span className="font-bold text-primary">
+                {video.percent}
+                {"% Reduction!"}
+              </span>
+              <MuxVideo
+                playbackId={video.after}
+                className="w-full aspect-video"
+                controls
+                autoPlay={false}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </main>
   );
 }

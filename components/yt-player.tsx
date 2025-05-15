@@ -24,8 +24,8 @@ export default function YouTubeConcatenatedPlayer({
   videoId,
   segments,
   clickFunction,
-  height = 324,
-  width = 576,
+  height = 720,
+  width = 1280,
 }: Props) {
   /* ---------- pre-compute helpers ---------- */
   const segLengths = segments.map((s) => s.end - s.start);
@@ -103,8 +103,8 @@ export default function YouTubeConcatenatedPlayer({
     window.onYouTubeIframeAPIReady = () => {
       if (playerRef.current) return; // already initialized
       playerRef.current = new window.YT.Player("yt-cc-player", {
-        height: String(height),
-        width: String(width),
+        width: "100%",
+        height: "100%",
         videoId,
         playerVars: {
           controls: 0,
@@ -300,71 +300,60 @@ export default function YouTubeConcatenatedPlayer({
 
   /* ---------- UI ---------- */
   return (
-    <div className="flex h-full items-center justify-center gap-10">
-      <div className="inline-flex flex-col items-center gap-2">
+    <div className="flex flex-col items-center justify-center gap-4 h-[100dvh] w-[100dvw] bg-black/20 z-10">
+      <span className="font-black text-primary text-4xl">
+        {reductionPercent?.toFixed(0)}% Reduction!
+      </span>
+
+      {/* ‣ Responsive wrapper: full width on sm, 3/4 on md+, fixed 16:9 */}
+      <div className="relative w-full md:w-3/4 aspect-video">
+        {/* Player fills the wrapper */}
+        <div id="yt-cc-player" className="absolute inset-0" />
+        {/* Click-through overlay */}
         <div
-          style={{
-            position: "relative",
-            width: `${width}px`,
-            height: `${height}px`,
-          }}
-        >
-          <div id="yt-cc-player" />
-          <div
-            style={{
-              position: "absolute",
-              top: 0,
-              left: 0,
-              width: "100%",
-              height: "100%",
-              zIndex: 1,
-            }}
-            onClick={handlePlayPause}
-            aria-label={playing ? "Pause video" : "Play video"}
-          />
-        </div>
-        <div
-          className="flex items-center gap-2 w-full"
-          style={{ maxWidth: `${width}px` }}
-        >
-          <Button
-            onClick={handlePlayPause}
-            className="rounded px-3 py-1 border w-[3rem]"
-            disabled={!isReady || segments.length === 0}
-          >
-            {playing ? "Pause" : "Play"}
-          </Button>
-          {/* NEW ▶ playback rate toggle */}
-          <Button
-            onClick={cycleRate}
-            className="rounded px-3 py-1 border w-[3rem]"
-            disabled={!isReady || segments.length === 0}
-            title="Toggle speed"
-          >
-            {playbackRate}x
-          </Button>
-          <Slider
-            min={0}
-            max={totalDuration}
-            step={0.1}
-            value={[virtualTime]}
-            onValueChange={(value) => seekVirtual(value[0])}
-            className="flex-1 text-primary"
-            disabled={!isReady || segments.length === 0}
-          />
-          <span className="tabular-nums text-right text-sm">
-            {formatTime(virtualTime)} / {formatTime(totalDuration)}
-          </span>
-        </div>
+          className="absolute inset-0 z-10"
+          onClick={handlePlayPause}
+          aria-label={playing ? "Pause video" : "Play video"}
+        />
       </div>
-      <div className="flex flex-col h-full items-center justify-center gap-4">
-        <span className="font-black text-primary text-4xl">
-          {reductionPercent?.toFixed(0)}% Reduction!
-        </span>
-        <Button className="cursor-pointer" onClick={clickFunction}>
-          Try Another!
+
+      {/* ‣ Controls */}
+      <div className="flex items-center gap-2 w-full md:w-3/4">
+        <Button
+          onClick={handlePlayPause}
+          className="rounded px-3 py-1 border w-[3rem]"
+          disabled={!isReady || segments.length === 0}
+        >
+          {playing ? "Pause" : "Play"}
         </Button>
+
+        <Button
+          onClick={cycleRate}
+          className="rounded px-3 py-1 border w-[3rem]"
+          disabled={!isReady || segments.length === 0}
+          title="Toggle speed"
+        >
+          {playbackRate}x
+        </Button>
+
+        <Slider
+          min={0}
+          max={totalDuration}
+          step={0.1}
+          value={[virtualTime]}
+          onValueChange={(value) => seekVirtual(value[0])}
+          className="flex-1 text-primary"
+          disabled={!isReady || segments.length === 0}
+        />
+
+        <span className="tabular-nums text-right text-sm">
+          {formatTime(virtualTime)} / {formatTime(totalDuration)}
+        </span>
       </div>
+
+      <Button className="cursor-pointer" onClick={clickFunction}>
+        Try Another!
+      </Button>
     </div>
   );
 }

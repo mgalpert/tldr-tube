@@ -170,7 +170,7 @@ def pick_segments(
     title: str,
     adhd_level: int,
     *,
-    chunk_size: int = 150,  # ← slide-window length
+    chunk_size: int = 100,  # ← slide-window length
     overlap: int = 25,  # ← lines shared with the previous chunk
     max_workers: int = 20,
 ) -> List[int]:
@@ -210,8 +210,10 @@ def pick_segments(
 
     def _call_gemini(batch: List[Tuple[int, Subtitle]], chunk_num: int) -> List[int]:
         prompt = _build_prompt(batch, chunk_num)
-        completion = gemini_client.chat.completions.create(
-            model="gemini-2.5-flash-preview-04-17",
+        completion = openai_client.chat.completions.create(
+            # model="gemini-2.5-flash-preview-04-17",
+            model="gpt-4o",
+            # model="gemini-2.5-pro-preview-05-06",
             reasoning_effort="medium",
             messages=[
                 {
