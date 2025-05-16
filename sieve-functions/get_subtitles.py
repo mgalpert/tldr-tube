@@ -1,4 +1,7 @@
+import json
+from pathlib import Path
 from typing import List
+
 import sieve
 import webvtt
 
@@ -26,11 +29,12 @@ def download_video(url):
     include_metadata = True
     metadata_fields = ["title", "duration"]
     include_subtitles = True
+    subtitle_format = "json3"
     subtitle_languages = ["en"]
     video_format = "mp4"
     audio_format = "mp3"
 
-    youtube_downloader = sieve.function.get("sieve-internal/subtitle-test")
+    youtube_downloader = sieve.function.get("sieve/youtube-downloader")
     output = youtube_downloader.run(
         url,
         download_type,
@@ -41,6 +45,7 @@ def download_video(url):
         include_metadata,
         metadata_fields,
         include_subtitles,
+        subtitle_format,
         subtitle_languages,
         video_format,
         audio_format,
@@ -53,6 +58,48 @@ def download_video(url):
             subtitles_path = output_object["en"].path
 
     return title, subtitles_path
+
+
+def load_subtitles_json3(subtitles_path: str) -> List[Subtitle]:
+    """
+    Parse a YouTube json3 transcript (one file per language) and return
+    a list of word-level Subtitle objects, sorted by start time.
+    """
+    data = json.loads(Path(subtitles_path).read_text(encoding="utf-8"))
+
+    subs: List[Subtitle] = []
+
+    for event in data.get("events", []):
+        t_start_ms: int | None = event.get("tStartMs")
+        if t_start_ms is None or "segs" not in event:  # style / window events
+            continue
+
+        segs = event["segs"]
+
+        for i, seg in enumerate(segs):
+            word = seg.get("utf8", "").strip()
+            if not word:  # ignore empty/whitespace
+                continue
+
+            offset_ms = seg.get("tOffsetMs", 0)
+            start = (t_start_ms + offset_ms) / 1000.0  # → seconds
+
+            # ───── determine an end time ─────────────────────
+            if i + 1 < len(segs):  # next word inside same event
+                next_offset = segs[i + 1].get("tOffsetMs", offset_ms)
+                end = (t_start_ms + next_offset) / 1000.0
+            else:  # last word in this event
+                dur_ms = event.get("dDurationMs")
+                if dur_ms is not None:
+                    end = (t_start_ms + dur_ms) / 1000.0
+                else:  # fallback: tiny padding
+                    end = start + 0.15
+
+            subs.append(Subtitle(word, start, end))
+
+    # Safety: keep chronological order
+    subs.sort(key=lambda s: s.start)
+    return subs
 
 
 def load_subtitles(subtitles_path: str) -> List[Subtitle]:
@@ -125,7 +172,7 @@ def group_subtitles_by_punctuation(
 
 def get_grouped_subtitles(url: str) -> List[Subtitle]:
     title, vtt_path = download_video(url)
-    word_level = load_subtitles(vtt_path)  # each cue == one token
+    word_level = load_subtitles_json3(vtt_path)  # each cue == one token
     sentence_level = group_subtitles_by_punctuation(word_level)
     return sentence_level, title
 
