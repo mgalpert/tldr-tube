@@ -306,7 +306,7 @@ export default function YouTubeConcatenatedPlayer({
       </span>
 
       {/* ‣ Responsive wrapper: full width on sm, 3/4 on md+, fixed 16:9 */}
-      <div className="relative w-full md:w-3/4 aspect-video">
+      <div className="relative w-full md:w-2/3 aspect-video">
         {/* Player fills the wrapper */}
         <div id="yt-cc-player" className="absolute inset-0" />
         {/* Click-through overlay */}
@@ -318,7 +318,7 @@ export default function YouTubeConcatenatedPlayer({
       </div>
 
       {/* ‣ Controls */}
-      <div className="flex items-center gap-2 w-full md:w-3/4">
+      <div className="flex items-center gap-2 w-full md:w-2/3">
         <Button
           onClick={handlePlayPause}
           className="rounded px-3 py-1 border w-[3rem]"

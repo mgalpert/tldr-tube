@@ -131,12 +131,14 @@ export default function Home() {
               </span>
               <div className="flex flex-col md:flex-row gap-2 w-full items-center justify-center">
                 <iframe
-                  className="w-2/3 md:w-1/3 aspect-video"
+                  className="w-2/3 md:w-1/3 xl:w-1/4 aspect-video"
                   src={convertVideoToEmbed(videoUrl)}
                 ></iframe>
-                <Skeleton className="w-2/3 md:w-1/3 aspect-video border border-primary flex flex-col items-center justify-center">
+                <Skeleton className="w-2/3 md:w-1/3 xl:w-1/4 aspect-video border border-primary flex flex-col items-center justify-center">
                   <Spinner />
-                  This may take 2-3 minutes...
+                  <span className="text-sm text-muted-foreground">
+                    This may take 2-3 minutes...
+                  </span>
                 </Skeleton>
               </div>
             </div>
