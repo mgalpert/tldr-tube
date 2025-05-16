@@ -1,28 +1,18 @@
-from bisect import bisect, bisect_left, bisect_right
-from youtube_transcript_api import YouTubeTranscriptApi
-from pathlib import Path
-import re
-import shutil
-import subprocess
-import tempfile
-from typing import List, Literal, Tuple
-import time
-import sieve
-import webvtt
-from dotenv import load_dotenv
-import openai
-import requests
-from bs4 import BeautifulSoup
-from get_subtitles import get_grouped_subtitles
-from segment_selection import generate_summary, pick_segments
-
-
 # from google import genai
 # from google.genai import types
 import os
-import json
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from typing import List, Literal
 
+import openai
+import requests
+import sieve
+import webvtt
+from bs4 import BeautifulSoup
+from dotenv import load_dotenv
+from get_subtitles import get_grouped_subtitles
+from segment_selection import generate_summary, pick_segments
+from youtube_transcript_api import YouTubeTranscriptApi
 
 load_dotenv()
 
@@ -62,9 +52,14 @@ def load_subtitles(subtitles_path: str) -> List[Subtitle]:
     ]
 
 
+def filter_included(included_indicies: List[int], len_subs: int) -> List[int]:
+    return [num for num in included_indicies if num < len_subs]
+
+
 def merge_subtitles(
     subtitles: List[Subtitle], include_indices: List[int]
 ) -> List[Subtitle]:
+    subtitles = filter_included(include_indices, len(subtitles))
     included = sorted(
         [subtitles[i] for i in sorted(set(include_indices))], key=lambda s: s.start
     )
@@ -126,7 +121,7 @@ def select_segments(
 
 
 @sieve.function(
-    name="create-adhd-video",  # Renamed to distinguish
+    name="create-tldr-video",  # Renamed to distinguish
     python_packages=[
         "python-dotenv",
         "openai",

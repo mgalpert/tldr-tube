@@ -29,7 +29,7 @@ export const submitVideo = async (
       "X-API-Key": api_key,
     },
     body: JSON.stringify({
-      function: "sieve-internal/create-adhd-video",
+      function: "sieve-demos/create-tldr-video",
       inputs: {
         youtube_video_url: videoUrl,
         adhd_level: "normal",
