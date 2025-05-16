@@ -1,8 +1,26 @@
-# TLDR Tube - Auto cut any youtube video to the most important parts
+# TLDR Tube
 
-### Web (NextJS) Code
+✂️ Automatically cut any YouTube video down to the most important parts.
 
-To run the TLDR Tube web code, run the development server:
+---
+
+## 🔗 Web (Next.js) App
+
+To run the TLDR Tube web application locally:
+
+### 1. Install dependencies
+
+```bash
+npm install
+# or
+yarn
+# or
+pnpm install
+# or
+bun install
+```
+
+### 2. Start the development server
 
 ```bash
 npm run dev
@@ -14,37 +32,57 @@ pnpm dev
 bun dev
 ```
 
-You will need to add your your Sieve API key to `.env.local`
+### 3. Set up environment variables
+
+Create a `.env.local` file in the root of the project and add your Sieve API key:
 
 ```
-SIEVE_KEY=
+SIEVE_KEY=your_sieve_api_key_here
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open [http://localhost:3000](http://localhost:3000) in your browser to view the app.
 
-### Backend Sieve Functions
+---
 
-All of the segment download and processing happens in a Sieve funciton in the `sieve-functions/`
-directory. The entry point for the function is in `create_video.py`.
+## 🧠 Backend (Sieve Functions)
 
-You will need to add your `OPENAI_KEY=` into a `.env` file in the `sieve-functions/` directory.
+The backend logic for segment download and processing lives in the `sieve-functions/` directory.
 
-Additionally you will also need to ensure that you download the the requirements by running:
+### 1. Set up environment variables
+
+Create a `.env` file inside the `sieve-functions/` directory:
+
+```
+OPENAI_KEY=your_openai_api_key_here
+```
+
+### 2. Install dependencies
+
+Navigate into the `sieve-functions/` directory and run:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### You can then deploy your sieve function with :
+### 3. Deploy your Sieve function
 
-Login with your sieve key:
+First, log in using your Sieve API key:
 
 ```bash
 sieve login
 ```
 
-Deploy your sieve function:
+Then deploy the function:
 
 ```bash
 sieve deploy create_video.py
 ```
+
+---
+
+## ✅ Summary
+
+- Web UI is built with **Next.js**
+- Video analysis and segmentation is powered by a **Sieve function** (`create_video.py`)
+- Requires **Sieve** and **OpenAI** API keys
+- Simple local setup for development and deployment
