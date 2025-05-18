@@ -171,7 +171,7 @@ export default function Home() {
 
       {resultSegments.length > 0 && (
         <YouTubeConcatenatedPlayer
-          videoId={videoUrl.split("=")[1]}
+          videoId={getYouTubeVideoId(videoUrl)!}
           segments={resultSegments}
           clickFunction={() => setResultSegments([])}
         />
