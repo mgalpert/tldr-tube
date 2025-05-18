@@ -1,6 +1,7 @@
 # from google import genai
 # from google.genai import types
 import os
+import re
 import time
 from typing import List, Literal
 
@@ -56,12 +57,21 @@ def filter_included(included_indicies: List[int], len_subs: int) -> List[int]:
     return [num for num in included_indicies if num < len_subs]
 
 
+def get_youtube_video_id(url: str):
+    match = re.search(r"(?:v=|\/)([0-9A-Za-z_-]{11})(?:[?&]|$)", url)
+    return match.group(1) if match else None
+
+
 def merge_subtitles(
     subtitles: List[Subtitle], include_indices: List[int]
 ) -> List[Subtitle]:
-    subtitles = filter_included(include_indices, len(subtitles))
+    print(len(subtitles))
+    indices_filtered = filter_included(include_indices, len(subtitles))
+    print("filtered", indices_filtered)
+
     included = sorted(
-        [subtitles[i] for i in sorted(set(include_indices))], key=lambda s: s.start
+        [subtitles[i] for i in sorted(set(indices_filtered))],
+        key=lambda s: s.start,
     )
 
     if not included:
@@ -86,8 +96,33 @@ def merge_subtitles(
     return merged
 
 
-def convert_segments_to_dicts(subtitles: List[Subtitle]):
-    return [{"start": subtitle.start, "end": subtitle.end} for subtitle in subtitles]
+def convert_segments_to_dicts(subtitles: List[Subtitle]) -> List[dict]:
+    """
+    Convert Subtitle objects to dicts while making sure segments don’t overlap.
+
+    If a segment’s start time is ≤ the end time of the previous segment,
+    bump its start to `prev_end + 0.1`.
+
+    Returns
+    -------
+    List[dict]
+        Each dict has “start” and “end” keys (floats, seconds).
+    """
+    segments: List[dict] = []
+    prev_end = float("-inf")
+
+    # If the input order isn’t guaranteed, uncomment the next line:
+    # subtitles = sorted(subtitles, key=lambda s: s.start)
+
+    for sub in subtitles:
+        start = sub.start
+        if start <= prev_end:  # overlap detected
+            start = prev_end + 0.1  # push start 0.1 s past prev_end
+
+        segments.append({"start": start, "end": sub.end})
+        prev_end = segments[-1]["end"]  # use (possibly unchanged) end as new boundary
+
+    return segments
 
 
 def get_youtube_title(video_url):
@@ -97,7 +132,7 @@ def get_youtube_title(video_url):
 
 
 def get_subtitles_title(youtube_video_url: str):
-    video_id = youtube_video_url.split("=")[1]
+    video_id = get_youtube_video_id(youtube_video_url)
     transcript_raw = YouTubeTranscriptApi.get_transcript(video_id)
     subtitles = [
         Subtitle(
@@ -112,10 +147,14 @@ def get_subtitles_title(youtube_video_url: str):
 
 
 def select_segments(
-    youtube_video_url: str, adhd_level: str, subtitles: List[Subtitle], title: str
+    youtube_video_url: str,
+    adhd_level: str,
+    subtitles: List[Subtitle],
+    title: str,
+    mode: Literal["fast", "quality"],
 ):
     summary = generate_summary(subtitles, title)
-    segments = pick_segments(subtitles, summary, title, adhd_level)
+    segments = pick_segments(subtitles, summary, title, adhd_level, mode)
     print(segments)
     return segments
 
@@ -133,6 +172,7 @@ def select_segments(
 )
 def create_adhd_video(
     youtube_video_url: str,
+    mode: Literal["fast", "quality"],
     adhd_level: Literal["relaxed", "normal", "hyper"] = "normal",
 ):
     print(
@@ -145,7 +185,7 @@ def create_adhd_video(
     # subtitles_path = "subtitles.vtt"
     subtitles, title = get_grouped_subtitles(youtube_video_url)
 
-    segments = select_segments(youtube_video_url, adhd_level, subtitles, title)
+    segments = select_segments(youtube_video_url, adhd_level, subtitles, title, mode)
     output_path = "video.mp4"
 
     print(f"Starting final concatenation to {output_path}...")

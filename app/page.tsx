@@ -11,6 +11,13 @@ import { WavesBackground } from "@/components/waves-background";
 import YouTubeSegmentPlayer from "@/components/yt-player";
 import YouTubeConcatenatedPlayer from "@/components/yt-player";
 import { LogoIcon } from "./SieveLogo";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const pollJobStatus = async (jobId: string): Promise<any[] | undefined> => {
   console.log("Polling job", jobId);
@@ -39,22 +46,27 @@ const pollJobStatus = async (jobId: string): Promise<any[] | undefined> => {
   return await poll();
 };
 
-const fetchVideo = async (videoUrl: string): Promise<any[] | undefined> => {
+const fetchVideo = async (
+  videoUrl: string,
+  mode: string
+): Promise<any[] | undefined> => {
   console.log("fetching video...");
-  const jobId = await submitVideo(videoUrl);
+  const jobId = await submitVideo(videoUrl, mode);
   if (!jobId) return;
   return await pollJobStatus(jobId);
 };
 
-const convertVideoToEmbed = (videoUrl: string) => {
-  // https://www.youtube.com/watch?v=8QyygfIloMc
-  const vidID = videoUrl.split("=")[1];
-  return `https://www.youtube.com/embed/${vidID}`;
+export const getYouTubeVideoId = (url: string): string | null => {
+  const regex =
+    /(?:youtube\.com\/(?:watch\?.*v=|embed\/|v\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+  const match = url.match(regex);
+  return match ? match[1] : null;
 };
 
 export default function Home() {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
+  const [mode, setMode] = useState<string>("fast");
   const [resultSegments, setResultSegments] = useState<any[]>([]);
 
   const demoVideos = [
@@ -77,7 +89,7 @@ export default function Home() {
 
   const processVideo = async () => {
     setLoading(true);
-    const result = await fetchVideo(videoUrl);
+    const result = await fetchVideo(videoUrl, mode);
     if (result) {
       // setResultVideo(result);
       setResultSegments(result);
@@ -113,6 +125,15 @@ export default function Home() {
                   className="md:w-[25rem] bg-background"
                   disabled={loading}
                 />
+                <Select value={mode} onValueChange={(value) => setMode(value)}>
+                  <SelectTrigger className="w-[6rem]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="fast">Fast</SelectItem>
+                    <SelectItem value="quality">Quality</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   className="cursor-pointer"
                   onClick={() => processVideo()}
@@ -132,7 +153,9 @@ export default function Home() {
               <div className="flex flex-col md:flex-row gap-2 w-full items-center justify-center">
                 <iframe
                   className="w-2/3 md:w-1/3 xl:w-1/4 aspect-video"
-                  src={convertVideoToEmbed(videoUrl)}
+                  src={`https://www.youtube.com/embed/${getYouTubeVideoId(
+                    videoUrl
+                  )}`}
                 ></iframe>
                 <Skeleton className="w-2/3 md:w-1/3 xl:w-1/4 aspect-video border border-primary flex flex-col items-center justify-center">
                   <Spinner />

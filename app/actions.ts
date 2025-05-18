@@ -17,7 +17,8 @@ export const getJobStatus = async (jobId: string) => {
 };
 
 export const submitVideo = async (
-  videoUrl: string
+  videoUrl: string,
+  mode: string
 ): Promise<string | undefined> => {
   if (!api_key) return;
   console.log("fetching video");
@@ -32,6 +33,7 @@ export const submitVideo = async (
       function: "sieve-demos/create-tldr-video",
       inputs: {
         youtube_video_url: videoUrl,
+        mode: mode,
         adhd_level: "normal",
       },
     }),

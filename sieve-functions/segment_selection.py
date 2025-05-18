@@ -1,10 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Literal, Tuple
-from dotenv import load_dotenv
+
 import openai
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -126,6 +127,7 @@ def pick_segments(
     summary: str,
     title: str,
     adhd_level: int,
+    mode: Literal["fast", "quality"],
     *,
     chunk_size: int = 100,  # ← slide-window length
     overlap: int = 25,  # ← lines shared with the previous chunk
@@ -167,22 +169,38 @@ def pick_segments(
 
     def _call_model(batch: List[Tuple[int, Subtitle]], chunk_num: int) -> List[int]:
         prompt = _build_prompt(batch, chunk_num)
-        completion = openai_client.chat.completions.create(
-            # model="gemini-2.5-flash-preview-04-17",
-            model="gpt-4o",
-            # model="gemini-2.5-pro-preview-05-06",
-            # reasoning_effort="medium",
-            messages=[
-                {
-                    "role": "user",
-                    "content": SYSTEM_PROMPT.replace(
-                        "VIDEO_REDUCTION_AMOUNT", get_adhd_length(adhd_level)
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
-            response_format={"type": "json_object"},
-        )
+        if mode == "fast":
+            completion = openai_client.chat.completions.create(
+                # model="gemini-2.5-flash-preview-04-17",
+                model="gpt-4o",
+                # model="gemini-2.5-pro-preview-05-06",
+                # reasoning_effort="medium",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": SYSTEM_PROMPT.replace(
+                            "VIDEO_REDUCTION_AMOUNT", get_adhd_length(adhd_level)
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+        else:
+            completion = gemini_client.chat.completions.create(
+                model="gemini-2.5-pro-preview-05-06",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": SYSTEM_PROMPT.replace(
+                            "VIDEO_REDUCTION_AMOUNT", get_adhd_length(adhd_level)
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+            )
+
         data_raw = safe_json(completion.choices[0].message.content)
         # print(data)
         data = data_raw["result"]
