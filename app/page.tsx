@@ -18,6 +18,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useQuery, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { calculateProcessingCost, formatCost } from "@/lib/costs";
+import Link from "next/link";
 
 const pollJobStatus = async (jobId: string): Promise<any[] | undefined> => {
   console.log("Polling job", jobId);
@@ -76,6 +80,15 @@ export default function Home() {
   const [speakerData, setSpeakerData] = useState<any>(null);
   const [showSpeakerSelect, setShowSpeakerSelect] = useState(false);
   const [excludedSpeakers, setExcludedSpeakers] = useState<string[]>([]);
+  const [processingStartTime, setProcessingStartTime] = useState<number>(0);
+  const [processingCost, setProcessingCost] = useState<number>(0);
+
+  // Convex hooks
+  const saveVideo = useMutation(api.videos.saveProcessedVideo);
+  const updateStats = useMutation(api.videos.updateUserStats);
+  const cachedVideo = useQuery(api.videos.getProcessedVideo, 
+    videoUrl ? { videoId: getYouTubeVideoId(videoUrl) || "" } : "skip"
+  );
 
   // Load saved results from localStorage on mount
   useEffect(() => {
@@ -148,13 +161,70 @@ export default function Home() {
   };
 
   const processVideo = async () => {
+    const videoId = getYouTubeVideoId(videoUrl);
+    if (!videoId) {
+      alert("Invalid YouTube URL");
+      return;
+    }
+
+    // Check if we have cached results
+    if (cachedVideo) {
+      console.log("Using cached video data");
+      setSpeakerData(cachedVideo.speakers);
+      setShowSpeakerSelect(true);
+      setExcludedSpeakers([cachedVideo.identifiedHost]);
+      
+      // Calculate segments from cached data
+      const segments = filterSegmentsBySpeaker(cachedVideo.speakers, [cachedVideo.identifiedHost]);
+      setResultSegments(segments);
+      
+      // Save to localStorage
+      localStorage.setItem("lastVideoResults", JSON.stringify({
+        url: videoUrl,
+        segments: segments,
+        speakers: cachedVideo.speakers,
+        excluded: [cachedVideo.identifiedHost]
+      }));
+      
+      return;
+    }
+
+    // Process new video
     setLoading(true);
+    setProcessingStartTime(Date.now());
+    
     const result = await fetchVideo(videoUrl, mode);
     if (result) {
       console.log("result", result);
       
+      const processingTime = (Date.now() - processingStartTime) / 1000; // in seconds
+      
       // Check if result is an object with speakers (new format) or just segments (old format)
       if (mode === "guest-only" && result && typeof result === 'object' && result.speakers) {
+        // Calculate cost based on video duration
+        const totalDuration = result.speakers.reduce((sum: number, speaker: any) => 
+          sum + speaker.totalTime, 0
+        );
+        const cost = calculateProcessingCost(totalDuration);
+        setProcessingCost(cost.total);
+        
+        // Save to Convex
+        await saveVideo({
+          videoId,
+          videoUrl,
+          title: undefined, // Could extract from YouTube API
+          speakers: result.speakers,
+          identifiedHost: result.identifiedHost,
+          processingTime,
+          processingCost: cost.total,
+        });
+        
+        // Update user stats
+        await updateStats({
+          processingTime,
+          cost: cost.total,
+        });
+        
         // For guest-only mode with new format, show speaker selection
         setSpeakerData(result.speakers);
         setShowSpeakerSelect(true);
@@ -196,6 +266,17 @@ export default function Home() {
   return (
     <main className="flex flex-col items-center justify-center gap-4 px-4">
       <WavesBackground />
+      
+      {/* Header with History Link */}
+      <div className="absolute top-4 right-4">
+        <Link 
+          href="/history"
+          className="bg-white/90 backdrop-blur-md border rounded-full px-4 py-2 text-sm hover:bg-white"
+        >
+          View History
+        </Link>
+      </div>
+      
       {resultSegments.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
           {!loading && (
@@ -259,6 +340,20 @@ export default function Home() {
         <>
           {speakerData && showSpeakerSelect && (
             <div className="bg-white/90 backdrop-blur-md border rounded-lg p-4 w-full md:w-2/3 mb-4">
+              {cachedVideo && (
+                <div className="bg-green-100 border border-green-300 rounded p-2 mb-4">
+                  <p className="text-sm text-green-800">
+                    ✓ Using cached results - saved {formatCost(cachedVideo.processingCost)}!
+                  </p>
+                </div>
+              )}
+              {processingCost > 0 && !cachedVideo && (
+                <div className="bg-blue-100 border border-blue-300 rounded p-2 mb-4">
+                  <p className="text-sm text-blue-800">
+                    Processing cost: {formatCost(processingCost)}
+                  </p>
+                </div>
+              )}
               <h3 className="font-bold text-lg mb-2">Speaker Selection</h3>
               <p className="text-sm text-gray-600 mb-4">
                 Uncheck speakers to exclude them from playback:

@@ -94,6 +94,16 @@ The new "Guest Only" mode uses Sieve's speaker diarization API to:
 sieve deploy isolate_guest.py
 ```
 
+## 💾 Caching & Cost Tracking
+
+The app now includes:
+- **Automatic Caching**: Processed videos are saved to avoid reprocessing
+- **Cost Tracking**: See exactly how much each video costs to process
+- **History Page**: View all previously processed videos at `/history`
+- **Usage Statistics**: Track your total usage and costs
+
+See [CONVEX_SETUP.md](./CONVEX_SETUP.md) for database setup instructions.
+
 ## ✅ Summary
 
 - Web UI is built with **Next.js**

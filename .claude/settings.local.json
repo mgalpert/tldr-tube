@@ -19,7 +19,11 @@
       "Bash(sieve login:*)",
       "Bash(sieve deploy:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(npm install:*)",
+      "Bash(npx convex dev:*)",
+      "Bash(npx convex:*)"
     ],
     "deny": []
   }
