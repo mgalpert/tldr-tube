@@ -1,12 +1,12 @@
 "use client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import PurpleGradientBackground from "@/components/gradient-background";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import MuxVideo from "@mux/mux-video-react";
-import { getJobStatus, submitVideo } from "./actions";
+import { getJobStatus, submitVideo, isolateGuest } from "./actions";
 import { WavesBackground } from "@/components/waves-background";
 import YouTubeSegmentPlayer from "@/components/yt-player";
 import YouTubeConcatenatedPlayer from "@/components/yt-player";
@@ -51,7 +51,12 @@ const fetchVideo = async (
   mode: string
 ): Promise<any[] | undefined> => {
   console.log("fetching video...");
-  const jobId = await submitVideo(videoUrl, mode);
+  let jobId;
+  if (mode === "guest-only") {
+    jobId = await isolateGuest(videoUrl);
+  } else {
+    jobId = await submitVideo(videoUrl, mode);
+  }
   if (!jobId) return;
   return await pollJobStatus(jobId);
 };
@@ -66,8 +71,25 @@ const getYouTubeVideoId = (url: string): string | null => {
 export default function Home() {
   const [videoUrl, setVideoUrl] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
-  const [mode, setMode] = useState<string>("fast");
+  const [mode, setMode] = useState<string>("guest-only");
   const [resultSegments, setResultSegments] = useState<any[]>([]);
+  const [speakerData, setSpeakerData] = useState<any>(null);
+  const [showSpeakerSelect, setShowSpeakerSelect] = useState(false);
+  const [excludedSpeakers, setExcludedSpeakers] = useState<string[]>([]);
+
+  // Load saved results from localStorage on mount
+  useEffect(() => {
+    const savedResults = localStorage.getItem("lastVideoResults");
+    if (savedResults) {
+      const { url, segments, speakers, excluded } = JSON.parse(savedResults);
+      setVideoUrl(url);
+      setResultSegments(segments);
+      if (speakers) {
+        setSpeakerData(speakers);
+        setExcludedSpeakers(excluded || []);
+      }
+    }
+  }, []);
 
   const demoVideos = [
     {
@@ -87,13 +109,86 @@ export default function Home() {
     },
   ];
 
+  const filterSegmentsBySpeaker = (speakers: any[], excluded: string[]) => {
+    console.log("Filtering segments. Speakers:", speakers);
+    console.log("Excluded speakers:", excluded);
+    
+    const filtered: any[] = [];
+    
+    for (const speaker of speakers) {
+      console.log(`Checking speaker ${speaker.id}, excluded: ${excluded.includes(speaker.id)}`);
+      if (!excluded.includes(speaker.id)) {
+        console.log(`Including ${speaker.segments.length} segments from speaker ${speaker.id}`);
+        for (const segment of speaker.segments) {
+          filtered.push({
+            start: Math.max(0, segment.start - 0.1),
+            end: segment.end + 0.1
+          });
+        }
+      } else {
+        console.log(`Excluding speaker ${speaker.id}`);
+      }
+    }
+    
+    console.log(`Total filtered segments before merge: ${filtered.length}`);
+    
+    // Sort and merge overlapping segments
+    filtered.sort((a, b) => a.start - b.start);
+    const merged = [];
+    for (const segment of filtered) {
+      if (merged.length > 0 && segment.start - merged[merged.length - 1].end < 1.0) {
+        merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, segment.end);
+      } else {
+        merged.push(segment);
+      }
+    }
+    
+    console.log(`Final merged segments: ${merged.length}`);
+    return merged;
+  };
+
   const processVideo = async () => {
     setLoading(true);
     const result = await fetchVideo(videoUrl, mode);
     if (result) {
-      // setResultVideo(result);
-      setResultSegments(result);
       console.log("result", result);
+      
+      // Check if result is an object with speakers (new format) or just segments (old format)
+      if (mode === "guest-only" && result && typeof result === 'object' && result.speakers) {
+        // For guest-only mode with new format, show speaker selection
+        setSpeakerData(result.speakers);
+        setShowSpeakerSelect(true);
+        setExcludedSpeakers([result.identifiedHost]);
+        
+        // Use the pre-filtered segments for now
+        setResultSegments(result.segments);
+        
+        // Save to localStorage
+        localStorage.setItem("lastVideoResults", JSON.stringify({
+          url: videoUrl,
+          segments: result.segments,
+          speakers: result.speakers,
+          excluded: [result.identifiedHost]
+        }));
+      } else if (Array.isArray(result)) {
+        // Old format - just segments array
+        setResultSegments(result);
+        
+        // Save to localStorage
+        localStorage.setItem("lastVideoResults", JSON.stringify({
+          url: videoUrl,
+          segments: result
+        }));
+      } else {
+        // For other modes, just use segments directly
+        setResultSegments(result);
+        
+        // Save to localStorage
+        localStorage.setItem("lastVideoResults", JSON.stringify({
+          url: videoUrl,
+          segments: result
+        }));
+      }
     }
     setLoading(false);
   };
@@ -101,22 +196,14 @@ export default function Home() {
   return (
     <main className="flex flex-col items-center justify-center gap-4 px-4">
       <WavesBackground />
-      <a
-        className="flex p-2 px-4 items-center gap-3 absolute top-2 right-2 text-sm rounded 
-       bg-[#Affffff66] backdrop-blur-md border rounded-full hover:bg-muted cursor-pointer"
-        href={"https://www.sievedata.com/"}
-      >
-        Powered by
-        <LogoIcon />
-      </a>
       {resultSegments.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 h-[25rem] w-full px-4">
           {!loading && (
             <>
               <h1 className="font-bold text-5xl">
-                <b className="bg-primary p-2 text-white">TLDR</b> Tube
+                Lex <b className="bg-primary p-2 text-white">minus</b> Lex
               </h1>
-              <span>Make any youtube video ADHD friendly.</span>
+              <span>Remove podcast hosts and keep only the guests.</span>
               <div className="flex items-center gap-2">
                 <Input
                   placeholder="Youtube Video Url"
@@ -126,12 +213,11 @@ export default function Home() {
                   disabled={loading}
                 />
                 <Select value={mode} onValueChange={(value) => setMode(value)}>
-                  <SelectTrigger className="w-[6rem]">
+                  <SelectTrigger className="w-[8rem]">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="fast">Fast</SelectItem>
-                    <SelectItem value="quality">Quality</SelectItem>
+                    <SelectItem value="guest-only">Guest Only</SelectItem>
                   </SelectContent>
                 </Select>
                 <Button
@@ -148,7 +234,7 @@ export default function Home() {
           {loading && (
             <div className="flex flex-col gap-2 md:h-full w-full items-center justify-center">
               <span className="font-bold text-xl text-primary">
-                TLDRing your video...
+                {mode === "guest-only" ? "Isolating guest speaker..." : "TLDRing your video..."}
               </span>
               <div className="flex flex-col md:flex-row gap-2 w-full items-center justify-center">
                 <iframe
@@ -170,14 +256,73 @@ export default function Home() {
       )}
 
       {resultSegments.length > 0 && (
-        <YouTubeConcatenatedPlayer
-          videoId={getYouTubeVideoId(videoUrl)!}
-          segments={resultSegments}
-          clickFunction={() => setResultSegments([])}
-        />
+        <>
+          {speakerData && showSpeakerSelect && (
+            <div className="bg-white/90 backdrop-blur-md border rounded-lg p-4 w-full md:w-2/3 mb-4">
+              <h3 className="font-bold text-lg mb-2">Speaker Selection</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Uncheck speakers to exclude them from playback:
+              </p>
+              <div className="space-y-2">
+                {speakerData.map((speaker: any) => (
+                  <label key={speaker.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!excludedSpeakers.includes(speaker.id.toString())}
+                      onChange={(e) => {
+                        const speakerId = speaker.id.toString();
+                        const newExcluded = e.target.checked
+                          ? excludedSpeakers.filter(id => id !== speakerId)
+                          : [...excludedSpeakers, speakerId];
+                        setExcludedSpeakers(newExcluded);
+                        
+                        // Update segments based on new selection
+                        const newSegments = filterSegmentsBySpeaker(speakerData, newExcluded);
+                        console.log("Speaker ID:", speakerId, "Type:", typeof speakerId);
+                        console.log("New excluded speakers:", newExcluded);
+                        console.log("New segments:", newSegments);
+                        setResultSegments(newSegments);
+                        
+                        // Update localStorage
+                        const savedData = localStorage.getItem("lastVideoResults");
+                        if (savedData) {
+                          const parsed = JSON.parse(savedData);
+                          localStorage.setItem("lastVideoResults", JSON.stringify({
+                            ...parsed,
+                            segments: newSegments,
+                            excluded: newExcluded
+                          }));
+                        }
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <span className="flex-1">
+                      <strong>{speaker.id}</strong> - 
+                      {Math.round(speaker.totalTime)}s total, 
+                      {speaker.segmentCount} segments
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
+          <YouTubeConcatenatedPlayer
+            videoId={getYouTubeVideoId(videoUrl)!}
+            segments={resultSegments}
+            speakerData={speakerData}
+            excludedSpeakers={excludedSpeakers}
+            clickFunction={() => {
+              setResultSegments([]);
+              setSpeakerData(null);
+              setShowSpeakerSelect(false);
+              setExcludedSpeakers([]);
+              localStorage.removeItem("lastVideoResults");
+            }}
+          />
+        </>
       )}
 
-      {resultSegments.length === 0 && (
+      {/* {resultSegments.length === 0 && (
         <div
           className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 rounded
        gap-4 mb-[7rem] w-full md:w-3/4 px-4 bg-[#ffffff66] backdrop-blur-md border p-3"
@@ -205,7 +350,70 @@ export default function Home() {
             </div>
           ))}
         </div>
-      )}
+      )} */}
+      
+      {/* Footer */}
+      <footer className="fixed bottom-0 left-0 right-0 p-4 text-center text-sm text-gray-600">
+        <p>
+          created by{" "}
+          <a
+            href="https://x.com/msg"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            @msg
+          </a>
+          {" & "}
+          <a
+            href="https://claude.ai"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            Claude
+          </a>
+          {" • "}
+          inspired by{" "}
+          <a
+            href="https://garfieldminusgarfield.net/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            garfield minus garfield
+          </a>
+          {" • "}
+          forked{" "}
+          <a
+            href="https://x.com/awdii_"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            @awdii_
+          </a>
+          's{" "}
+          <a
+            href="https://github.com/sieve-data/tldr-tube"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            repo
+          </a>
+          {" • "}
+          code is{" "}
+          <a
+            href="https://github.com/mgalpert/tldr-tube"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-primary hover:underline"
+          >
+            open-sourced
+          </a>
+        </p>
+      </footer>
     </main>
   );
 }

@@ -1,0 +1,1 @@
+make an appp that removes the podcast host from the podcast video it should just display the video of the podcast guest. using sieve api heres the repo that i forked https://github.com/mgalpert/tldr-tube heres the sample video i want to use https://www.youtube.com/watch?v=dNrTrx42DGQ&t=3s

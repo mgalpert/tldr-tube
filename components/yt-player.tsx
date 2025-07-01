@@ -9,6 +9,8 @@ interface Props {
   videoId: string;
   segments: Segment[];
   clickFunction: () => void;
+  speakerData?: any[];
+  excludedSpeakers?: string[];
   height?: number;
   width?: number;
 }
@@ -24,6 +26,8 @@ export default function YouTubeConcatenatedPlayer({
   videoId,
   segments,
   clickFunction,
+  speakerData,
+  excludedSpeakers,
   height = 720,
   width = 1280,
 }: Props) {
@@ -73,10 +77,27 @@ export default function YouTubeConcatenatedPlayer({
   const [virtualTime, setVirtualTime] = useState(0);
   const [originalDuration, setOriginalDuration] = useState<number | null>(null);
   const [playbackRate, setPlaybackRate] = useState<1 | 2>(1); // NEW ▶ default 2x
+  const [currentSpeaker, setCurrentSpeaker] = useState<string>("");
+  const lastSpeakerRef = useRef<string>("");
+  const speakerTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const reductionPercent = originalDuration
     ? 100 * (1 - totalDuration / originalDuration)
     : null;
+
+  // Helper function to find which speaker is currently speaking
+  const getCurrentSpeaker = useCallback((realTime: number) => {
+    if (!speakerData) return "";
+    
+    for (const speaker of speakerData) {
+      for (const segment of speaker.segments) {
+        if (realTime >= segment.start && realTime <= segment.end) {
+          return speaker.id;
+        }
+      }
+    }
+    return "";
+  }, [speakerData]);
 
   /* ---------- helper: cycle playback rate ---------- */
   const cycleRate = useCallback(() => {
@@ -187,6 +208,32 @@ export default function YouTubeConcatenatedPlayer({
     }
     const realNow = playerRef.current.getCurrentTime();
     const virtNow = realToVirtual(realNow);
+    
+    // Update current speaker with debouncing
+    const speaker = getCurrentSpeaker(realNow);
+    
+    if (speaker && speaker !== lastSpeakerRef.current) {
+      // Clear any existing timeout
+      if (speakerTimeoutRef.current) {
+        clearTimeout(speakerTimeoutRef.current);
+      }
+      
+      // Only update if the speaker remains the same for 300ms
+      speakerTimeoutRef.current = setTimeout(() => {
+        setCurrentSpeaker(speaker);
+        lastSpeakerRef.current = speaker;
+      }, 300);
+    } else if (!speaker && lastSpeakerRef.current) {
+      // If no speaker detected, keep showing the last one for a bit
+      if (speakerTimeoutRef.current) {
+        clearTimeout(speakerTimeoutRef.current);
+      }
+      
+      speakerTimeoutRef.current = setTimeout(() => {
+        setCurrentSpeaker("");
+        lastSpeakerRef.current = "";
+      }, 1000); // Wait 1 second before clearing
+    }
 
     let currentSegIdx = segments.findIndex(
       (_, i) =>
@@ -232,7 +279,7 @@ export default function YouTubeConcatenatedPlayer({
 
     setVirtualTime(Math.min(virtNow, totalDuration));
     rafId.current = requestAnimationFrame(tick);
-  }, [segments, segLengths, cumulative, totalDuration, realToVirtual]);
+  }, [segments, segLengths, cumulative, totalDuration, realToVirtual, getCurrentSpeaker, currentSpeaker]);
 
   /* ---------- control helpers ---------- */
   const handlePlayPause = () => {
@@ -289,6 +336,9 @@ export default function YouTubeConcatenatedPlayer({
   useEffect(() => {
     return () => {
       stopRaf();
+      if (speakerTimeoutRef.current) {
+        clearTimeout(speakerTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -301,9 +351,20 @@ export default function YouTubeConcatenatedPlayer({
   /* ---------- UI ---------- */
   return (
     <div className="flex flex-col items-center justify-center gap-4 h-[100dvh] w-[100dvw] bg-black/20 z-10">
-      <span className="font-black text-primary text-4xl">
-        {reductionPercent?.toFixed(0)}% Reduction!
-      </span>
+      <div className="text-center">
+        <span className="font-black text-primary text-4xl">
+          {reductionPercent?.toFixed(0)}% Reduction!
+        </span>
+        {speakerData && (
+          <div className="mt-2 text-xl h-8">
+            {currentSpeaker && (
+              <span className="text-white bg-black/50 px-3 py-1 rounded">
+                Now Speaking: <strong>{currentSpeaker}</strong>
+              </span>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ‣ Responsive wrapper: full width on sm, 3/4 on md+, fixed 16:9 */}
       <div className="relative w-full md:w-2/3 aspect-video">

@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(ls:*)",
+      "WebFetch(domain:github.com)",
+      "Bash(git clone:*)",
+      "Bash(mv:*)",
+      "Bash(rmdir:*)",
+      "WebFetch(domain:docs.sievedata.com)",
+      "WebFetch(domain:sievedata.com)",
+      "WebFetch(domain:www.sievedata.com)",
+      "Bash(test:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm install)",
+      "Bash(sieve whoami:*)",
+      "Bash(pip install:*)",
+      "Bash(export SIEVE_API_KEY=\"ERA5V9-ecEjfOtBiXo6pUQsCCWsZeRvMeKCKNiXUXLg\")",
+      "Bash(sieve login:*)",
+      "Bash(sieve deploy:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": []
+  }
+}

@@ -1,6 +1,6 @@
 # TLDR Tube
 
-✂️ Automatically cut any YouTube video down to the most important parts.
+✂️ Automatically cut any YouTube video down to the most important parts or isolate podcast guest speakers.
 
 ---
 
@@ -80,9 +80,25 @@ sieve deploy create_video.py
 
 ---
 
+## 🎙️ Guest Isolation Feature
+
+The new "Guest Only" mode uses Sieve's speaker diarization API to:
+1. Download the podcast video from YouTube
+2. Extract audio and perform speaker diarization
+3. Identify which speaker is the guest (typically speaks less than the host)
+4. Return segments containing only the guest's speaking parts
+
+### Deploy the guest isolation function:
+
+```bash
+sieve deploy isolate_guest.py
+```
+
 ## ✅ Summary
 
 - Web UI is built with **Next.js**
-- Video analysis and segmentation is powered by a **Sieve function** (`create_video.py`)
+- Video analysis and segmentation is powered by **Sieve functions**
+  - `create_video.py` - TLDR summarization
+  - `isolate_guest.py` - Guest speaker isolation
 - Requires **Sieve** and **OpenAI** API keys
 - Simple local setup for development and deployment

@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TLDRTube",
-  description: "Make any youtube 1/5 the length.",
+  title: "Lex minus Lex",
+  description: "Remove podcast hosts and keep only the guests",
 };
 
 export default function RootLayout({
